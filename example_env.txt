@@ -1,0 +1,2 @@
+LABELBOX_API_KEY=Your labelbox API key here
+ROOT=Path to your local project folder
