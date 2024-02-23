@@ -1,0 +1,8 @@
+[build-system]
+requires = ["setuptools >= 61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "koger_detection"
+version = "0.1.0"
+license = {text = "Apache License (2.0)"}
