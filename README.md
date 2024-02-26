@@ -1,5 +1,7 @@
 # koger_detection
 
+Notebooks and code for efficiently annotating, training, and using object detection models.
+
 ## Initial set up
 
 ### pip install
@@ -31,5 +33,7 @@ Part of this process is done using the Labelbox API. To access data from a speci
 
 ## Model Training
 
+For model training use the notebook in example_notebooks called [train_model.ipynb](https://github.com/benkoger/detection-projects/blob/main/example_notebooks/train_model.ipynb). 
+
 ## Setup
-Since sometimes its nice to save model weights seperately from annotations, the training notebook use a path called MODEL_PATH that is defined in your .env file.
+The training notebook relies on an environmental varaible MODEL_PATH that is defined in your .env file and defined where model weights and config files will be saved.
