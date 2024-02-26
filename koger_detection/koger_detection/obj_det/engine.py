@@ -2,6 +2,7 @@ import math
 import os
 import random
 import time
+from datetime import datetime
 
 import cv2
 from dotenv import load_dotenv
@@ -30,9 +31,9 @@ from engine import _get_iou_types
 
 
 def worker_init_fn(worker_id):
-    np.random.seed(datetime.datetime.now().microsecond 
+    np.random.seed(datetime.now().microsecond 
                    + worker_id * 1000000)
-    random.seed(datetime.datetime.now().microsecond 
+    random.seed(datetime.now().microsecond 
                    + worker_id * 1000000)
     
 
@@ -404,11 +405,12 @@ def train(cfg, model, optimizer, lr_scheduler, transform_train,
     # define training and validation data loaders
     data_loader = torch.utils.data.DataLoader(
         dataset, batch_size=cfg_t['batch_size'], shuffle=True, 
-        num_workers=cfg_t['num_workers'], collate_fn=collate_fn)
+        num_workers=cfg_t['num_workers'], collate_fn=collate_fn,
+        worker_init_fn=worker_init_fn)
 
     data_loader_test = torch.utils.data.DataLoader(
         dataset_test, batch_size=1, shuffle=False, num_workers=4,
-        collate_fn=collate_fn)
+        collate_fn=collate_fn, worker_init_fn=worker_init_fn)
     
     writer = SummaryWriter(cfg_t['run_folder'])
     

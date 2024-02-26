@@ -1,2 +1,5 @@
-LABELBOX_API_KEY=Your labelbox API key here
 ROOT=Path to your local project folder
+LABELBOX_API_KEY=Your labelbox API key here
+TORCHVISION_REFERENCES=Path to local copy of github.com/pytorch/vision/tree/main/references/detection
+MODEL_PATH=Full path to model folder
+
