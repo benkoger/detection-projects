@@ -1,5 +1,6 @@
 import os
 import json
+from datetime import datetime
 
 from labelbox import Project
 from labelbox.data.serialization import COCOConverter
@@ -16,6 +17,11 @@ def convert_name_to_unicode(name, num_chars_from_end=10):
     return integer
     """
     return int("".join([str(ord(c)) for c in name[-num_chars_from_end:]]))
+
+def get_time_as_int():
+    """ Get current time as 18 digit int for (mostly) unique naming"""
+    now = datetime.utcnow()
+    return int(now.strftime("%Y%m%d%H%M%S%f")[2:])
 
 def alphabetize_categories(coco_json):
     """ Make annotation categories alphabetical.
@@ -60,11 +66,10 @@ def download_annotation_project(project, project_name, image_folder, json_file,
     """
     labels = []
     project_labels = project.label_generator()
-    # Representation of project name as a number (last 10 characters)
-    unicode_name = convert_name_to_unicode(project_name)
     image_num = 0
     for proj_label_num, label in enumerate(project_labels):
-        filename = f"{unicode_name}{image_num:05}.jpg"
+        current_time = get_time_as_int()
+        filename = f"{current_time}.jpg"
         path = os.path.join(image_folder, filename)
         if len(label.annotations) == 0:
             if verbose:
