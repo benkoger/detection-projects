@@ -104,6 +104,8 @@ def get_annotations_based_on_id(annotation_dicts, image_id,
 def combine_jsons(json_files, out_file=None):
     """ Combine multiple JSON file into a new single consistent JSON file.
     
+    Note: currently just uses the category from the first json file.
+    
     Args:
         json_files (list): list of json file strings
         out_file (string): full path of file where we want to save new file
@@ -155,3 +157,97 @@ def combine_jsons(json_files, out_file=None):
                       separators=(',', ': '))
     else:      
         return new_dict
+
+#### FUNCTIONS FOR RENAMING CATEGORIES
+    
+def create_new_categories(category_mapping):
+    """ Creates the 'categories' value for a coco annotation dictionary.
+    
+    Args: 
+        category_mapping: dict where keys are existing category names and 
+            values are new category names
+    """
+    
+    new_categories = []
+    added_categories = []
+    for item_num, (old_cat, new_cat) in enumerate(category_mapping.items()):
+        if new_cat not in added_categories:
+            category = {'id': len(new_categories) + 1, # id starts at 1
+                        'name': new_cat,
+                        'supercategory': 'all',
+                        'isthing': 1
+                       }
+            new_categories.append(category)
+            added_categories.append(new_cat)
+    return new_categories
+
+def get_category_id(category_name, categories):
+    """ Returns category id based on category name in coco categories.
+    
+    Args:
+        category_name: name of the category 
+        categories: value assosiated with 'categories' key in coco dict
+        
+    """
+    for category in categories:
+        if category['name'] == category_name:
+            return category['id']
+    print(f"{category_name} not found in categories.")
+    return None
+
+def map_old_category_ids_to_new(old_cats, new_cats, cat_mapping):
+    """ Return a dict where keys are previous category ids and values are new.
+    
+    Args:
+        old_cats: value assosiated with 'categories' key in original coco dict
+        new_cats: value assosiated with 'categories' key in new coco dict
+        cat_mapping: dict where keys are original category names and 
+            values are new category names
+   
+   Returns dict where keys are previous category ids and values are new category ids
+   """
+    cat_id_map = {}
+    
+    for old_cat_name, new_cat_name in cat_mapping.items():
+        old_cat_id = get_category_id(old_cat_name, old_cats) 
+        new_cat_id = get_category_id(new_cat_name, new_cats) 
+        cat_id_map[old_cat_id] = new_cat_id
+    return cat_id_map
+    
+def rename_categories(coco_dict, category_mapping, out_file=None):
+    """ Rename category names including combing multiple categories into one.
+    
+    Args:
+        coco_dict: existing coco formated dictionary
+        category_mapping: dictionary where keys are old category names and
+            values are the new category names
+        outfile: Path where new coco dict should be saved (should be a valid
+            .json filename)
+            
+    Saves or returns new coco formated dictionary with the new category names 
+        (and updated annotations ids) based on on if outfile is given.
+    """
+    
+    old_categories = coco_dict['categories']
+
+    new_coco = create_empty_annotation_json(coco_dict)
+    new_categories = create_new_categories(category_mapping)
+    new_coco['categories'] = new_categories
+
+    new_coco['images'] = coco_dict['images']
+
+    old_ids_to_new_ids = map_old_category_ids_to_new(old_categories, 
+                                                     new_categories, 
+                                                     category_mapping)
+
+    for ann in coco_dict['annotations']:
+        ann['category_id'] = old_ids_to_new_ids[ann['category_id']]
+        new_coco['annotations'].append(ann)
+    
+    if out_file:
+        with open(out_file, "w") as write_file:
+            json.dump(new_coco, write_file, indent=4, 
+                      separators=(',', ': '))
+    else:      
+        return new_coco
+                        

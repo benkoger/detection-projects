@@ -121,3 +121,100 @@ def download_annotation_projects(annotation_folder, client,
         download_annotation_project(project, name, image_folder, json_path, 
                                     download_images)
         
+def create_dataset(labelbox_client, image_files, dataset_name):
+    """First create dataset with images.
+    
+    Args:
+        labelbox_client: labelbox Client object
+        image_files: list of files to upload to labelbox dataset
+        dataset_name: name of the dataset
+    """
+    
+    storage_dataset = labelbox_client.create_dataset(name=dataset_name)
+
+    # Create data payload
+    # External ID is recommended to identify your data
+    my_data_rows = []
+    for image_file in image_files:
+        my_data_rows.append({"row_data": image_file,
+                             "external_id": os.path.basename(image_file)
+                            }
+                           )
+    # Bulk add data rows to the dataset
+    task = storage_dataset.create_data_rows(my_data_rows)
+    task.wait_till_done()
+    while task.status != "COMPLETE":
+        print(f"Storage dataset upload status: {task.status}")
+        time.sleep(3)
+    return task.status == "COMPLETE"
+        
+
+def create_storage_dataset(labelbox_client, image_files, dataset_name):
+    """First create dataset with images including overlay images
+    so that they are given an online adress by labelbox. Nessisary
+    step to eventually have overlay dataset for focal frames.
+    
+    Args:
+        labelbox_client: labelbox Client object
+        image_files: list of files to upload to labelbox dataset
+        dataset_name: name of the final overlay dataset to be annotated
+            ('-storage' will be appended)
+    """
+    
+    # This dataset is just for uploading all images to the cloud
+    # In a second dataset some of these images will become overlay images
+    # So the user can use animal movement to help detect crypric individuals
+    return create_dataset(labelbox_client, image_files, f"{dataset_name}-storage")
+        
+        
+def add_crops_to_labelbox(labelbox_client, focal_images, dataset_name):
+    """ Create labelbox dataset with overlay images around focal image.
+    
+    Args: 
+        labelbox_client: labelbox Client object
+        focal_images: list of focal image full paths
+            (These are the files that are going to actually be 
+            annotated (marked by _f))
+        dataset_name: name of the dataset 
+            
+        """
+    
+    focal_names = [os.path.basename(f) for f in focal_images]
+    
+    dataset = labelbox_client.create_dataset(name=dataset_name)
+    
+    storage_ds = labelbox_client.get_datasets(
+        where=labelbox.Dataset.name == f"{dataset_name}-storage").get_one()
+
+    my_data_rows = []
+
+    for focal_name in focal_names:
+        prev_name = focal_name.split("_f.jpg")[0] + "_a.jpg"
+        next_name = focal_name.split("_f.jpg")[0] + "_b.jpg"
+        data_row = storage_ds.data_row_for_external_id(focal_name)
+        prev_row = storage_ds.data_row_for_external_id(prev_name)
+        next_row = storage_ds.data_row_for_external_id(next_name)
+
+        my_data_rows.append({"row_data": data_row.row_data,
+                             "external_id": data_row.external_id,
+                             "attachments": [
+                                 {
+                                     "type": "IMAGE_OVERLAY",
+                                     "value": prev_row.row_data
+                                 },
+                                 {
+                                     "type": "IMAGE_OVERLAY",
+                                     "value": next_row.row_data
+                                 }
+                             ]
+                            }
+                           )
+
+    # Bulk add data rows to the dataset
+    task = dataset.create_data_rows(my_data_rows)
+
+    task.wait_till_done()
+    while task.status != "COMPLETE":
+        print(f"Storage dataset upload status: {task.status}")
+        time.sleep(3)
+    return f"successful upload: {task.status == 'COMPLETE'}"
