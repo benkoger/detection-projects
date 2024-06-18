@@ -15,19 +15,11 @@ from torchvision.models.detection.faster_rcnn import FastRCNNPredictor
 from torchvision.transforms import ToTensor
 from pycocotools.cocoeval import COCOeval, Params
 
-from .mydatasets import CocoDetection
-
-# Assumes we have a local .env file that stores things like ROOT
-load_dotenv()
-
-import sys
-# .../torchvision-references/detection'
-sys.path.insert(1, os.environ.get('TORCHVISION_REFERENCES'))
-
-import utils
-from coco_eval import CocoEvaluator
-from coco_utils import get_coco_api_from_dataset
-from engine import _get_iou_types
+import koger_detection.torchvision_reference.utils as utils
+from koger_detection.obj_det.mydatasets import CocoDetection
+from koger_detection.torchvision_reference.coco_eval import CocoEvaluator
+from koger_detection.torchvision_reference.coco_utils import get_coco_api_from_dataset
+from koger_detection.torchvision_reference.engine import _get_iou_types
 
 
 def worker_init_fn(worker_id):

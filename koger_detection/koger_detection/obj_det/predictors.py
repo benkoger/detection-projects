@@ -1,6 +1,6 @@
 import torch
 
-from .engine import get_detection_model
+from koger_detection.obj_det.engine import get_detection_model
 
 class Predictor:
     """ Assumes images are passed as H x W x 3 with values from 0 to 255."""

@@ -1,0 +1,1 @@
+Files in this folder derectly copied from https://github.com/pytorch/vision/tree/main/references/detection

@@ -16,10 +16,6 @@ ROOT=*Local project folder* where things like annotatations will be stored in au
 **LABELBOX_API_KEY:**
 Your labelbox API key see [Downloading Annotations](#Downloading-Annotations) for more info on what this is.
 
-**TORCHVISION_REFERENCES:**
-You must have a local copy of the contents of the following folder: https://github.com/pytorch/vision/tree/main/references/detection
-The environmental variable TORCHVISION_REFERENCES should be the full path to this folder.
-
 **MODEL_PATH:**
 Full path to where trained model weights and corresponding config files etc. will be saved (in created subfolders).
  
