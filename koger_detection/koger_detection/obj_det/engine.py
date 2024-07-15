@@ -13,11 +13,10 @@ from torch.utils.tensorboard import SummaryWriter
 import torchvision
 from torchvision.models.detection.faster_rcnn import FastRCNNPredictor
 from torchvision.transforms import ToTensor
-from pycocotools.cocoeval import COCOeval, Params
 
 import koger_detection.torchvision_reference.utils as utils
 from koger_detection.obj_det.mydatasets import CocoDetection
-from koger_detection.torchvision_reference.coco_eval import CocoEvaluator
+from koger_detection.obj_det.evaluate import CustomCocoEval, CustomCocoEvaluator
 from koger_detection.torchvision_reference.coco_utils import get_coco_api_from_dataset
 from koger_detection.torchvision_reference.engine import _get_iou_types
 
@@ -128,55 +127,6 @@ def train_one_epoch(model, optimizer, data_loader, device, epoch, writer=None,
         metric_logger.update(lr=optimizer.param_groups[0]["lr"])
 
     return metric_logger
-
-class CustomCocoParams(Params):
-    #Allows custom evaulation parameters for COCO evaulation
-    
-    # The evaluation parameters are as follows (defaults in brackets):
-    #  imgIds     - [all] N img ids to use for evaluation
-    #  catIds     - [all] K cat ids to use for evaluation
-    #  iouThrs    - [.5:.05:.95] T=10 IoU thresholds for evaluation
-    #  recThrs    - [0:.01:1] R=101 recall thresholds for evaluation
-    #  areaRng    - [...] A=4 object area ranges for evaluation (list of [min_area, max_area])
-    #  maxDets    - [1 10 100] M=3 thresholds on max detections per image
-    #  iouType    - ['segm'] set iouType to 'segm', 'bbox' or 'keypoints'
-    #  iouType replaced the now DEPRECATED useSegm parameter.
-    #  useCats    - [1] if true use category labels for evaluation
-    # Note: if useCats=0 category labels are ignored as in proposal scoring.
-    # Note: multiple areaRngs [Ax2] and maxDets [Mx1] can be specified.
-    
-    def __init__(self, iouType='segm', **kwargs):
-        super().__init__(iouType)
-        for key, value in kwargs.items():
-            if key in self.__dict__.keys():
-                setattr(self, key, value)
-            else:
-                raise ValueError("unexpected kwarg value", key)
-        
-class CustomCocoEval(COCOeval):
-    """Allows custom evaulation parameters for COCO evaulation"""
-    def __init__(self, cocoGt=None, cocoDt=None, iouType='segm', **kwargs):
-        super().__init__(cocoGt, cocoDt, iouType)
-        self.params = CustomCocoParams(iouType, **kwargs) # parameters
-        # These are empty lists when params is created 
-        # COCOeval fills in when initializes, this is how they are initialized
-        if not cocoGt is None:
-            self.params.imgIds = sorted(cocoGt.getImgIds())
-            self.params.catIds = sorted(cocoGt.getCatIds())
-
-        
-    def summarize(self):
-        print("Summarize cannot be run with custom parameters. Use COCOeval.")
-        
-class CustomCocoEvaluator(CocoEvaluator):
-    """Allows custom evaulation parameters for COCO evaulation"""
-    def __init__(self, coco_gt, iou_types, **kwargs):
-        super().__init__(coco_gt, iou_types)
-        
-        for iou_type in iou_types:
-            self.coco_eval[iou_type] = CustomCocoEval(coco_gt, 
-                                                      iouType=iou_type, 
-                                                      **kwargs)
 
             
 def add_image_to_tensorboard(image, output, targets, writer, global_step, im_id):
@@ -411,7 +361,7 @@ def train(cfg, model, optimizer, lr_scheduler, transform_train,
 
     for epoch in range(cfg_t['num_epochs']):
         train_one_epoch(model, optimizer, data_loader, device, epoch, 
-                        writer=writer, print_freq=50)
+                        writer=writer, print_freq=200)
         
         if cfg_t['lr_scheduler']['name'] != "ReduceOnPlateau":
             # update the learning rate

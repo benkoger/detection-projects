@@ -101,7 +101,7 @@ def get_annotations_based_on_id(annotation_dicts, image_id,
             annotation_id += 1
     return(annotations, annotation_id)
 
-def combine_jsons(json_files, out_file=None):
+def combine_jsons(json_files, out_file=None, keep_ids=False):
     """ Combine multiple JSON file into a new single consistent JSON file.
     
     Note: currently just uses the category from the first json file.
@@ -110,6 +110,10 @@ def combine_jsons(json_files, out_file=None):
         json_files (list): list of json file strings
         out_file (string): full path of file where we want to save new file
             if None, don't save
+        keep_ids: if True use each images existing id, if False, give each image
+            a new if based on image number in new combined set of images.
+            - This is helpful if image ids are not unique across all jsons being
+            combined.
     
     Return combined json
     """
@@ -140,11 +144,14 @@ def combine_jsons(json_files, out_file=None):
 
         for image_num, image_dict in enumerate(images):
             image_id = image_dict['id']
+            new_image_id = image_id # image id that will be used in the combined json
+            if not keep_ids:
+                new_image_id = images_added + 1
             new_annotations, annotation_id = get_annotations_based_on_id(
-                json_dict['annotations'], image_id, images_added+1, annotation_id)
+                json_dict['annotations'], image_id, new_image_id, annotation_id)
             if len(new_annotations) != 0:
                 new_dict['images'].append(image_dict)
-                new_dict['images'][-1]['id'] = images_added + 1
+                new_dict['images'][-1]['id'] = new_image_id
                 new_dict['annotations'].extend(new_annotations)
                 images_added += 1
 
@@ -250,4 +257,56 @@ def rename_categories(coco_dict, category_mapping, out_file=None):
                       separators=(',', ': '))
     else:      
         return new_coco
+
+def create_json_from_image_names(json_file, image_ids, new_name, save_folder=None):
+    """ Create a new coco json file from a subset of existing coco json based on 
+    list of image names passed to function.
+
+    Convient way to subset annotations by image dimension, number of annotations
+    per image etc. by collecting relevant image names outside of function.
+    
+        Args:
+            json_file: full path to json file for all annotations
+            image_ids: list of the image ids to include in the new json
+                (assumes these ids are in the json file passed to function)
+            new_name: name of the new coco json file
+            save_folder: path to folder to save new .json files.
+                If None, then save in same file as current json
+    """
+    
+    with open(json_file, "r") as read_file:
+        json_dict = json.load(read_file)
+    
+    new_dict = create_empty_annotation_json(json_dict)
+
+    # The index of an image in json_dict['images'] isn't same as that image's id
+    id_to_ind = {}
+    for ind, image in enumerate(json_dict['images']):
+        id_to_ind[image['id']] = ind
+
+    for image_num, image_id in enumerate(image_ids):
+        if image_id not in id_to_ind:
+            print(f"warning specified image Id {image_id} is not in passed json")
+            print("Skipping...")
+            continue
+        new_annotations = get_annotations_for_id(json_dict['annotations'], image_id)
+        if len(new_annotations) != 0:
+            image_dict = json_dict['images'][id_to_ind[image_id]]
+            new_dict['images'].append(image_dict)
+            new_dict['annotations'].extend(new_annotations)
+
+    # correct annotation ids (count from 1 on up)
+    for new_id, _ in enumerate(new_dict['annotations']):
+        new_dict['annotations'][new_id]['id'] = new_id + 1
+
+
+    print(f"New coco json has {len(new_dict['images'])}  images ",
+          f"with {len(new_dict['annotations'])} annotations.")
+
+    if save_folder is None:
+        save_folder = os.path.dirname(json_file)
+
+    with open(os.path.join(save_folder, new_name), "w") as write_file:
+        json.dump(new_dict, write_file, indent=4, separators=(',', ': '))
+
                         

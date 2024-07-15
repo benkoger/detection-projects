@@ -5,6 +5,7 @@ import numpy as np
 import time
 import torch
 import torchvision
+import torch.utils.data as data
 
 
 class CocoDetection(torchvision.datasets.CocoDetection):
@@ -12,9 +13,6 @@ class CocoDetection(torchvision.datasets.CocoDetection):
     
     def __init__(self, img_folder, ann_file, transform=None):
         super(CocoDetection, self).__init__(img_folder, ann_file)
-        if not isinstance(transform, A.core.composition.Compose):
-            print("Warning: Transform is expected to be a ",
-                  "albumentations Compose object.")
         self.transform = transform # Assumes using albulmentaion
         
     
@@ -32,26 +30,34 @@ class CocoDetection(torchvision.datasets.CocoDetection):
             labels.append(ann['category_id'])
             area.append(ann['area'])
 
-        if not isinstance(self.transform, A.core.composition.Compose):
-            print("Transform is expected to be a albumentations Compose object")
-            return False
+        if self.transform is not None:
+            if not isinstance(self.transform, A.core.composition.Compose):
+                print("Transform is expected to be a albumentations Compose object")
+                return False
 
-        has_boxes = False
-        count = 0
-        while not has_boxes:
-            transformed = self.transform(image=np.array(img), bboxes=boxes,
-                                         class_labels=labels, area=area)
-            transformed_image = transformed['image']
-            transformed_bboxes = transformed['bboxes']
-            transformed_labels = transformed['class_labels']
-            transformed_area = transformed['area'] 
-            
-            if len(transformed_bboxes) > 0:
-                has_boxes = True
-            if count > 100:
-                if count % 10 == 0:
-                    print("cant find boxes", count)
-            count += 1
+            has_boxes = False
+            count = 0
+            # This wierd while loop is in case all boxes are removed during 
+            # certain augmentation ranges that may be randomly encountered
+            while not has_boxes:
+                transformed = self.transform(image=np.array(img), bboxes=boxes,
+                                             class_labels=labels, area=area)
+                transformed_image = transformed['image']
+                transformed_bboxes = transformed['bboxes']
+                transformed_labels = transformed['class_labels']
+                transformed_area = transformed['area'] 
+                
+                if len(transformed_bboxes) > 0:
+                    has_boxes = True
+                if count > 100:
+                    if count % 10 == 0:
+                        print("cant find boxes", count)
+                count += 1
+        else:
+            transformed_image = np.array(img)
+            transformed_bboxes = boxes
+            transformed_labels = labels
+            transformed_area = area
 
         # convert everything into a torch.Tensor
         t_boxes = torch.as_tensor(transformed_bboxes, dtype=torch.float32)
@@ -69,8 +75,6 @@ class CocoDetection(torchvision.datasets.CocoDetection):
         target['area'] = t_area
         target['iscrowd'] = iscrowd
 
-
-         
         return transformed_image, target 
     
 
@@ -115,4 +119,27 @@ class VideoDataset(torch.utils.data.IterableDataset):
     def stop(self):
         self.fvs.stop()
         print("FileVideoStream stopped.")
+
+class ImageDataset(data.Dataset):
+    """ Simple image dataset for inference on a list of image paths """
+
+    def __init__(self, files, rgb=True):
+        """
+        Args:
+            files: list of paths to image files
+            rgb: If True return image as rgb, else return bgr
+        """
+        self.files = files
+        self.rgb = rgb
+
+    def __getitem__(self, idx):
+        image = cv2.imread(self.files[idx])
+        if self.rgb:
+            image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB) 
+        return {"image": image, "filename": self.files[idx]}
+
+    def __len__(self):
+        return len(self.files)
+
+    
         
