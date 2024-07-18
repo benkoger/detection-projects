@@ -267,16 +267,16 @@ def coco_annotation_converter(data_row_id, annotation, ontology_index):
     """
     max_line_keypoints = 0
     category_id = ontology_index[annotation['feature_schema_id']]['encoded_value']
-    if "classifications" in annotation.keys():
-        if annotation['classifications']:
-            for classification in annotation['classifications']:
-                if 'answer' in classification.keys():
-                    if type(classification['answer']) == dict:
-                        category_id = ontology_index[classification['schemaId']]['encoded_value']
-                        break
-                else:
-                    category_id = ontology_index[classification['answers'][0]['schemaId']]['encoded_value']
-                    break
+    # if "classifications" in annotation.keys():
+    #     if annotation['classifications']:
+    #         for classification in annotation['classifications']:
+    #             if 'answer' in classification.keys():
+    #                 if type(classification['answer']) == dict:
+    #                     category_id = ontology_index[classification['schemaId']]['encoded_value']
+    #                     break
+    #             else:
+    #                 category_id = ontology_index[classification['answers'][0]['schemaId']]['encoded_value']
+    #                 break
     if "bounding_box" in annotation.keys():
         coco_annotation = coco_bbox_converter(data_row_id, annotation, category_id)
     elif "line" in annotation.keys():
@@ -325,23 +325,13 @@ def coco_converter(project, verbose=False, extra_image_info_func=None):
 
     licenses = [ { "url" : "N/A", "id" : 1, "name" : "N/A" } ]
 
-    # Create a dictionary where {key=data_row_id : value=data_row}
-
-    # subsets = list(project.batches()) if len(list(project.batches())) > 0 else list(project.datasets())
-    # for subset in subsets:
-    #     for data_row in subset.export_data_rows():
-    #         data_rows.update({data_row.uid : data_row})
-
-    # data_rows = {}
-    # if verbose:
-    #     print(f'Exporting Data Rows from Project...')
-    # for label in labels_list:
-    #     data_row = label["data_row"]
-    #     data_rows.update({data_row["id"] : data_row["row_data"]})
-    # if verbose:
-    #     print(f'\nExport complete. {len(data_rows)} Data Rows Exported')
-    #     # Images section generated from data row export
-    #     print(f'\nConverting Data Rows into a COCO Dataset...\n')
+    # Remove any rows without annotations
+    # Modified by Koger: check if image has annotations
+    cleaned_labels_list = []
+    for ann_ind, label in enumerate(labels_list):
+        if label["projects"][project.uid]["labels"]:
+            cleaned_labels_list.append(label)
+    labels_list = cleaned_labels_list
 
     images = []
     data_row_check = [] # This is a check for projects where one data row has multiple labels (consensus, benchmark)

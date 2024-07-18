@@ -9,6 +9,7 @@ from PIL import Image
 import requests
 
 from koger_detection.labelbox.coco import coco_converter
+from koger_detection.utils.json import alphabetize_categories
 
 def convert_name_to_unicode(name, num_chars_from_end=10):
     """ Convert concatenate unicode values of final characters in string together.
@@ -25,33 +26,6 @@ def get_time_as_int():
     """ Get current time as 18 digit int for (mostly) unique naming"""
     now = datetime.utcnow()
     return int(now.strftime("%Y%m%d%H%M%S%f")[2:])
-
-def alphabetize_categories(coco_json):
-    """ Make annotation categories alphabetical.
-    
-    Labelbox doesn't have deterministic category numbering based on given ontology
-    so forcing it to be alphabetical makes category order consistent across projects.
-
-    return json although modifies in place
-    """
-    categories = coco_json['categories']
-    names = sorted([c['name'] for c in categories])
-    new_pairing = {}
-    for ind, name in enumerate(names):
-        new_pairing[name] = ind + 1
-    # The index of array is the current class id
-    # The value in array will be the new class id
-    # (0 index isn't used)
-    new_cat = np.arange(len(categories)+1)
-    for cat_ind, category in enumerate(categories):
-        new_cat[int(category['id'])] = new_pairing[category['name']]
-        category['id'] = new_pairing[category['name']]
-    
-    categories.sort(key=lambda c: c['id'])
-        
-    for ann in coco_json['annotations']:
-        ann['category_id'] = int(new_cat[int(ann['category_id'])])
-    return coco_json
 
 
 def download_annotation_project(project, project_name, image_folder, json_file, 
@@ -87,7 +61,6 @@ def download_annotation_project(project, project_name, image_folder, json_file,
                 print(f"Warning image {image_info['file_name']} doesn't exist.")
                 if verbose:
                     print(f"Note: save images is currently set to {save_images}")
-        
 
     coco = alphabetize_categories(coco)
     

@@ -126,11 +126,12 @@ def combine_jsons(json_files, out_file=None, keep_ids=False):
             json_dicts.append(json_dict)
     
     total_images = 0
+    total_annotations = 0
     for json_dict in json_dicts:
         total_images += len(json_dict['images'])
+        total_annotations += len(json_dict['annotations'])
         
-    print('There are {} annotated images in the JSON files.'.format(
-        total_images))
+    print(f"There are {total_images} annotated images with {total_annotations} annotations in the JSON files.")
     
     new_dict = create_empty_annotation_json(json_dicts[0])
 
@@ -309,4 +310,95 @@ def create_json_from_image_names(json_file, image_ids, new_name, save_folder=Non
     with open(os.path.join(save_folder, new_name), "w") as write_file:
         json.dump(new_dict, write_file, indent=4, separators=(',', ': '))
 
+def alphabetize_categories(coco_json):
+    """ Make annotation categories alphabetical.
+    
+    Labelbox doesn't have deterministic category numbering based on given ontology
+    so forcing it to be alphabetical makes category order consistent across projects.
+
+    return json although modifies in place
+    """
+    categories = coco_json['categories']
+    names = sorted([c['name'] for c in categories])
+    new_pairing = {}
+    for ind, name in enumerate(names):
+        new_pairing[name] = ind + 1
+    # The index of array is the current class id
+    # The value in array will be the new class id
+    # (0 index isn't used)
+    new_cat = {}
+    for cat_ind, category in enumerate(categories):
+        new_cat[int(category['id'])] = new_pairing[category['name']]
+        category['id'] = new_pairing[category['name']]
+    
+    categories.sort(key=lambda c: c['id'])
+        
+    for ann in coco_json['annotations']:
+        ann['category_id'] = int(new_cat[int(ann['category_id'])])
+    return coco_json
+
+def remove_annotation_category(coco, category_name, remove_image=False):
+    """ Remove all annotations with category name from coco annotations.
+    
+    Can either remove just the annotation or the whole image and corresponding 
+    annotations that contain that category.
+    
+    Args:
+        coco: dictionary in coco format
+        category_name: should be one of coco['categories'][ind]['name']
+            where ind is some valid index
+        remove_index: if True remove all images and corresponding annotations
+            where category is present. Otherwise just remove the annotations of category.
+    
+    Return modified coco dict.
+    """
+    original_categories = coco['categories']
+    new_categories = []
+    remove_id = None
+    for cat in original_categories:
+        if category_name == cat['name']:
+            remove_id = cat['id']
+            continue
+        new_categories.append(cat)
+    if remove_id is None:
+        print(f"Warning category to be removed in not in coco['categories']")
+        print("Aborting")
+        return coco
+
+    print(f"Starting with {len(coco['annotations'])}")
+
+    # Look through all annotations (by image)
+    # This probably gets slow for lots of annotations, but easy while tractable
+    retained_images = []
+    retained_anns = []
+    for image in coco['images']:
+        image_id = image['id']
+        category_present = False
+        raw_im_anns = get_annotations_for_id(coco['annotations'], image_id)
+        im_anns = []
+        for ann in raw_im_anns:
+            if ann['category_id'] == remove_id:
+                category_present = True
+                continue
+            im_anns.append(ann)
+        if remove_image:
+            if category_present:
+                continue
+        if im_anns:
+            # Make sure image still has annotations
+            retained_images.append(image)
+            retained_anns.extend(im_anns)
+
+    coco['categories'] = new_categories
+    coco['images'] = retained_images
+    coco['annotations'] = retained_anns
+
+    # renumber annotations:
+    for ann_ind, ann in enumerate(coco['annotations']):
+        ann['id'] = ann_ind + 1
+        
+
+    print(f"Final coco with {len(coco['annotations'])} annotations.")
+
+    return coco  
                         
