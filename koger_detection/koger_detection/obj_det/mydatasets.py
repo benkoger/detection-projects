@@ -37,8 +37,12 @@ class CocoDetection(torchvision.datasets.CocoDetection):
 
             has_boxes = False
             count = 0
-            # This wierd while loop is in case all boxes are removed during 
-            # certain augmentation ranges that may be randomly encountered
+
+            # Sometimes transforms remove all annotatations which causes errors
+            # If that happens, try a different set of augmentations that hopefully
+            # keep at least one box
+            # WARNING: This can cause huge delays if annotations are rare with the
+            # chosen augmentation regieme
             while not has_boxes:
                 transformed = self.transform(image=np.array(img), bboxes=boxes,
                                              class_labels=labels, area=area)
@@ -49,10 +53,11 @@ class CocoDetection(torchvision.datasets.CocoDetection):
                 
                 if len(transformed_bboxes) > 0:
                     has_boxes = True
-                if count > 100:
-                    if count % 10 == 0:
-                        print("cant find boxes", count)
+                if count > 0:
+                    print("cant find boxes", count, "idx", idx)
                 count += 1
+                
+
         else:
             transformed_image = np.array(img)
             transformed_bboxes = boxes

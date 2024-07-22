@@ -3,15 +3,19 @@ import os
 import random
 import time
 from datetime import datetime
+from typing import Tuple, List, Dict, Optional, Union
 
 import cv2
 from dotenv import load_dotenv
 import numpy as np
 
 import torch
+from torch import nn, Tensor
 from torch.utils.tensorboard import SummaryWriter
 import torchvision
 from torchvision.models.detection.faster_rcnn import FastRCNNPredictor
+from torchvision.models.detection.transform import GeneralizedRCNNTransform
+from torchvision.models.detection.image_list import ImageList
 from torchvision.transforms import ToTensor
 
 import koger_detection.torchvision_reference.utils as utils
@@ -26,6 +30,57 @@ def worker_init_fn(worker_id):
                    + worker_id * 1000000)
     random.seed(datetime.now().microsecond 
                    + worker_id * 1000000)
+
+class SimpleRCNNTransform(GeneralizedRCNNTransform):
+    """ GeneralizedRCNNTransform but without resizing."""
+
+    def __init__(self, image_mean=None, image_std=None, size_divisible=32):
+        if image_mean is None:
+            image_mean = [0.485, 0.456, 0.406]
+        if image_std is None:
+            image_std = [0.229, 0.224, 0.225]
+        super().__init__(0, 0, image_mean, image_std, size_divisible)
+
+    def forward(
+        self, images: List[Tensor], targets: Optional[List[Dict[str, Tensor]]] = None
+    ) -> Tuple[ImageList, Optional[List[Dict[str, Tensor]]]]:
+        images = [img for img in images]
+        if targets is not None:
+            # make a copy of targets to avoid modifying it in-place
+            # once torchscript supports dict comprehension
+            # this can be simplified as follows
+            # targets = [{k: v for k,v in t.items()} for t in targets]
+            targets_copy: List[Dict[str, Tensor]] = []
+            for t in targets:
+                data: Dict[str, Tensor] = {}
+                for k, v in t.items():
+                    data[k] = v
+                targets_copy.append(data)
+            targets = targets_copy
+        for i in range(len(images)):
+            image = images[i]
+            target_index = targets[i] if targets is not None else None
+
+            if image.dim() != 3:
+                raise ValueError(f"images is expected to be a list of 3d tensors of shape [C, H, W], got {image.shape}")
+            image = self.normalize(image)
+            images[i] = image
+            if targets is not None and target_index is not None:
+                targets[i] = target_index
+
+        image_sizes = [img.shape[-2:] for img in images]
+        images = self.batch_images(images, size_divisible=self.size_divisible)
+        image_sizes_list: List[Tuple[int, int]] = []
+        for image_size in image_sizes:
+            torch._assert(
+                len(image_size) == 2,
+                f"Input tensors expected to have in the last two elements H and W, instead got {image_size}",
+            )
+            image_sizes_list.append((image_size[0], image_size[1]))
+
+        image_list = ImageList(images, image_sizes_list)
+        return image_list, targets
+
     
 
 def get_detection_model(num_classes, **model_cfg):
@@ -52,6 +107,11 @@ def get_detection_model(num_classes, **model_cfg):
             weights="DEFAULT",
             **model_cfg
         )
+        # Get rid of built in preprocessing (so for example train and val images can be different sizes)
+        # as discussed here: https://github.com/pytorch/vision/issues/2263
+        model.transform = SimpleRCNNTransform()
+        print("Warning: model_cfg['fixed_size'] is being ignored.")
+    
     elif model_cfg['model_type'] == "keypoints":
         model = torchvision.models.detection.keypointrcnn_resnet50_fpn(
             weights=torchvision.models.detection.KeypointRCNN_ResNet50_FPN_Weights.DEFAULT,
@@ -86,6 +146,11 @@ def train_one_epoch(model, optimizer, data_loader, device, epoch, writer=None,
     running_loss = 0
     for batch_num, data in enumerate(metric_logger.log_every(data_loader, print_freq, header)):
         images, targets = data
+
+        # TO REMOVE WHEN DROPPED ANNOTATIONS IS FIXED
+        for tar in targets:
+            if len(tar['boxes']) == 0:
+                print(tar)
         
         images = list(image.to(device) for image in images)
         targets = [{k: v.to(device) for k, v in t.items()} for t in targets]
