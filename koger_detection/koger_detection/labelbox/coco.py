@@ -329,7 +329,8 @@ def coco_converter(project, verbose=False, extra_image_info_func=None):
     # Modified by Koger: check if image has annotations
     cleaned_labels_list = []
     for ann_ind, label in enumerate(labels_list):
-        if label["projects"][project.uid]["labels"]:
+        # if label["projects"][project.uid]["labels"]:
+        if label["projects"][project.uid]["labels"][0]["annotations"]["objects"]:
             cleaned_labels_list.append(label)
     labels_list = cleaned_labels_list
 
