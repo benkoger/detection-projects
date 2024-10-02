@@ -289,6 +289,26 @@ def coco_annotation_converter(data_row_id, annotation, ontology_index):
         coco_annotation = coco_mask_converter(data_row_id, annotation, category_id)
     return coco_annotation, max_line_keypoints
 
+def remove_empty_annotations(labels_list):
+    """ Remove cases where image wasn't annotated at all or there were no objects."""
+    cleaned_labels_list = []
+    for ann_ind, label in enumerate(labels_list):
+        project_ids = list(label["projects"].keys())
+        if len(project_ids) > 1:
+            print("Warning: multiple project ids assosiated with image. Using first one.")
+        project_id = project_ids[0]
+        if not label["projects"][project_id]["labels"]:
+            # I think this case happens when the image wasn't looked at all by an annotator
+            # Might also be related to old labelbox projects?
+            continue
+        if not label["projects"][project_id]["labels"][0]["annotations"]["objects"]:
+            # Looked at by annotators but no objects present
+            continue
+        cleaned_labels_list.append(label)
+
+    return cleaned_labels_list
+    
+
 def coco_converter(project, verbose=False, extra_image_info_func=None):
     """ Given a project and a list of labels, will create the COCO export json
     Args:
@@ -306,8 +326,7 @@ def coco_converter(project, verbose=False, extra_image_info_func=None):
         "data_row_details": True,
         }
 
-    filters= {
-        }
+    filters= {}
 
     labels_list = project.export_v2(params=export_params, filters=filters)
     labels_list.wait_till_done()
@@ -327,12 +346,7 @@ def coco_converter(project, verbose=False, extra_image_info_func=None):
 
     # Remove any rows without annotations
     # Modified by Koger: check if image has annotations
-    cleaned_labels_list = []
-    for ann_ind, label in enumerate(labels_list):
-        # if label["projects"][project.uid]["labels"]:
-        if label["projects"][project.uid]["labels"][0]["annotations"]["objects"]:
-            cleaned_labels_list.append(label)
-    labels_list = cleaned_labels_list
+    labels_list = remove_empty_annotations(labels_list)
 
     images = []
     data_row_check = [] # This is a check for projects where one data row has multiple labels (consensus, benchmark)
