@@ -53,8 +53,8 @@ class CocoDetection(torchvision.datasets.CocoDetection):
                 
                 if len(transformed_bboxes) > 0:
                     has_boxes = True
-                if count > 0:
-                    print("cant find boxes", count, "idx", idx)
+                if count > 1:
+                    print(f"Warning: can't find boxes in image idx {idx} after augmentation iteration {count}. Trying again...")
                 count += 1
                 
 

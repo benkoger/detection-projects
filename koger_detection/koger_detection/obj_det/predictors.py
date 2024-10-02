@@ -6,14 +6,14 @@ from koger_detection.obj_det.engine import get_detection_model
 class Predictor:
     """ Assumes images are passed as H x W x 3 with values from 0 to 255."""
     
-    def __init__(self, cfg, model_weights_path=None, rgb=True):
+    def __init__(self, cfg, model_weights_path=None, invert_color_channel=False):
         """
         Args:
             cfg: model config dictionary
             model_weights_path: full path to model weights to use
-            rgb: if images will be passed as RGB
+            invert_color_channel: if images will be changed from BGR to RGB or vice versa
         """
-        self.rgb = rgb
+        self.invert_color_channel = invert_color_channel
         
         if model_weights_path is None:
             model_weights_path = cfg.pop("model_weights_pth")
@@ -40,7 +40,7 @@ class Predictor:
             image = torch.as_tensor(image.astype("float32"))
         else:
             raise ValueError("Expects image to be torch tensor, numpy array, or tuple")
-        if self.rgb:
+        if self.invert_color_channel:
             # image is loaded as RGB but needs to be in BGR
             image = image[:, :, [2,1,0]]
         image = torch.permute(image, (2, 0, 1))
