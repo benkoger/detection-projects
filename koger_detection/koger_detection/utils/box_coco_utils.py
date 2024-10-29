@@ -4,11 +4,17 @@ import random
 import json
 import os
 
+from tabulate import tabulate
+import itertools
+
 import numpy as np
 from PIL import Image
 from tqdm import tqdm
 import cv2
-from detectron2.utils.visualizer import Visualizer
+try:
+    from detectron2.utils.visualizer import Visualizer
+except:
+    pass
 # from panopticapi.utils import rgb2id
 
 
@@ -160,3 +166,52 @@ def separate_coco_semantic_from_panoptic(panoptic_json, panoptic_root,
             futures.append(executor.submit(fn, *args))
         for _ in tqdm(as_completed(futures)):
             _.result()
+
+def print_instances_class_histogram(dataset_dict, num_frames=False):
+    """
+    From https://detectron2.readthedocs.io/en/latest/_modules/detectron2/data/build.html#print_instances_class_histogram
+    Args:
+        dataset_dicts (dict): dataset dict.
+        num_frames (boolean): If True return number of frames containing class.
+    """
+    class_names = [cat['name'] for cat in dataset_dict['categories']]
+    num_classes = len(class_names)
+    hist_bins = np.arange(num_classes + 1)
+
+    annos = dataset_dict["annotations"]
+    classes = np.asarray(
+        [x["category_id"]-1 for x in annos], dtype=int
+    )
+    if len(classes):
+        assert classes.min() >= 0, f"Got an invalid category_id={classes.min()}"
+        assert (
+      classes.max() < num_classes
+        ), f"Got an invalid category_id={classes.max()} for a dataset of {num_classes} classes"
+    if num_frames:
+        classes = np.unique(classes)
+    histogram = np.histogram(classes, bins=hist_bins)[0]
+
+    N_COLS = min(6, len(class_names) * 2)
+
+    def short_name(x):
+        # make long class names shorter. useful for lvis
+        if len(x) > 13:
+            return x[:11] + ".."
+        return x
+
+    data = list(
+        itertools.chain(*[[short_name(class_names[i]), int(v)] for i, v in enumerate(histogram)])
+    )
+    total_num_instances = sum(data[1::2])
+    data.extend([None] * (N_COLS - (len(data) % N_COLS)))
+    if num_classes > 1:
+        data.extend(["total", total_num_instances])
+    data = itertools.zip_longest(*[data[i::N_COLS] for i in range(N_COLS)])
+    table = tabulate(
+        data,
+        headers=["category", "#instances"] * (N_COLS // 2),
+        tablefmt="pipe",
+        numalign="left",
+        stralign="center",
+    )
+    print(table)

@@ -449,6 +449,8 @@ def train(cfg, model, optimizer, lr_scheduler, transform_train,
         else:
             writer.add_scalar('Learning rate', lr_scheduler.get_last_lr(),
                               (epoch+1)*len(data_loader))
+        torch.save(model.state_dict(), 
+               os.path.join(cfg_t['run_folder'], f"model-epoch-{epoch}.pth"))
 
     torch.save(model.state_dict(), 
                os.path.join(cfg_t['run_folder'], "final_model.pth"))

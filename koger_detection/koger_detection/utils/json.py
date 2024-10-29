@@ -1,7 +1,8 @@
 import copy
 import json
-import copy
 import os
+import random
+
 import numpy as np
 
 def create_empty_annotation_json(json_dict):
@@ -27,16 +28,44 @@ def get_annotations_for_id(annotation_dicts, image_id):
             annotations.append(copy.deepcopy(annotation_dict))
     return(annotations)
 
+def deterministic_in_val(image_num, fraction_val):
+    """Determine train val split by putting every nth image in val set.
+    
+    Args:
+        image_num: number of the image currently being added to train/val set.
+        fraction_val: fraction of the images to be put in the val set
+        
+    Return True if image should be in validation set.
+    """
+    if image_num % int(1/fraction_val) == 0:
+        return True
+    else:
+        return False
+
+def stochastic_in_val(fraction_val):
+    """Determine if image should be in the validation set with prob. fraction_val.
+    
+    Args:
+        fraction_val: fraction of the images to be put in the val set
+        
+    Return True if image should be in validation set.
+    """
+    if random.random() < fraction_val:
+        return True
+    else:
+        return False
 
 def create_train_val_split(json_file, fraction_val, save_folder=None,
-                           train_name="train.json", val_name="val.json"):
+                           train_name="train.json", val_name="val.json",
+                           stochastic=False):
     """
         Args:
             json_file: full path to json file for all annotations
             fraction_val: fraction of total dataset should be used for
                 testing (.25 -> a quarter of total used for testing)
-            save_folder: path to folder to save new .json files.
-                If None, then save in same file as current json
+            train_name: file name for the resulting training set
+            val_name: file name for the resulting validation set
+            stochastic: if false split is deterministic
     """
     
     with open(json_file, "r") as read_file:
@@ -52,7 +81,6 @@ def create_train_val_split(json_file, fraction_val, save_folder=None,
     val_dict = create_empty_annotation_json(json_dict)
 
     images = sorted([an for an in json_dict['images']], key=lambda an: an['id']) 
-
     images = [images[image_id] for image_id in image_ids]
 
     images_added = 0
@@ -61,7 +89,11 @@ def create_train_val_split(json_file, fraction_val, save_folder=None,
         image_id = image_dict['id']
         new_annotations = get_annotations_for_id(json_dict['annotations'], image_id)
         if len(new_annotations) != 0:
-            if images_added % int(1/fraction_val) == 0:
+            if stochastic:
+                in_val = stochastic_in_val(fraction_val)
+            else:
+                in_val = deterministic_in_val(images_added, fraction_val)
+            if in_val:
                 # validation image
                 val_dict['images'].append(image_dict)
                 val_dict['annotations'].extend(new_annotations)

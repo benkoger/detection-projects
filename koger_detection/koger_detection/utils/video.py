@@ -1,9 +1,11 @@
+import os
+import time
+
 from imutils.video import FileVideoStream
 from imutils.video import FPS
 import numpy as np
 import argparse
 import imutils
-import time
 import cv2
 
 
@@ -62,6 +64,8 @@ def extract_crops(video_names, video_folder_path, save_folder, num_extract,
                 frame_file += f"_top_{top_left[0]}_left_{top_left[1]}"
             # Naming convention here is to append an 'f' if the focal frame that will
             # be annotated and a 'a' or 'b' if the first or last frame in a triplet
+            if crop_size is None:
+                top_left = None
             save_frame(cap, frame_num, frame_file+"_f.jpg", crop_size, top_left)
             if save_triplet:
                 next_frame_num = frame_num + triplet_spacing
