@@ -144,13 +144,9 @@ def train_one_epoch(model, optimizer, data_loader, device, epoch, writer=None,
         )
 
     running_loss = 0
+    
     for batch_num, data in enumerate(metric_logger.log_every(data_loader, print_freq, header)):
         images, targets = data
-
-        # TO REMOVE WHEN DROPPED ANNOTATIONS IS FIXED
-        for tar in targets:
-            if len(tar['boxes']) == 0:
-                print(tar)
         
         images = list(image.to(device) for image in images)
         targets = [{k: v.to(device) for k, v in t.items()} for t in targets]
@@ -178,6 +174,9 @@ def train_one_epoch(model, optimizer, data_loader, device, epoch, writer=None,
         else:
             losses.backward()
             optimizer.step()
+
+        del losses
+        del loss_dict
 
         if lr_scheduler is not None:
             lr_scheduler.step()
@@ -263,6 +262,7 @@ def evaluate(model, data_loader, device, writer=None, step_num=None):
                                         )
 
     losses = []
+
     for batch_num, (images, targets) in enumerate(metric_logger.log_every(data_loader, 100, header)):
         
         images = list(img.to(device) for img in images)
@@ -281,14 +281,15 @@ def evaluate(model, data_loader, device, writer=None, step_num=None):
 
             loss_value = losses_reduced.item()
             losses.append(loss_value)
-        
-        model.eval()
-        outputs = model(images)
+            del loss_dict
+
+            model.eval()
+            outputs = model(images)
 
         outputs = [{k: v.to(cpu_device) for k, v in t.items()} for t in outputs]
         targets = [{k: v.to(cpu_device) for k, v in t.items()} for t in targets]
         model_time = time.time() - model_time
-        if batch_num < 4:
+        if batch_num < 1:
             add_images_to_tensorboard(images, outputs, targets, writer, step_num, batch_num)
 
         res = {target["image_id"].item(): output for target, output in zip(targets, outputs)}
@@ -300,15 +301,16 @@ def evaluate(model, data_loader, device, writer=None, step_num=None):
     val_loss = np.mean(np.array(losses))
     writer.add_scalar('Val/loss', val_loss, step_num)
 
-    running_loss = 0
-    
-    # gather the stats from all processes
+    # # gather the stats from all processes
     metric_logger.synchronize_between_processes()
     print("Averaged stats:", metric_logger)
     coco_evaluator.synchronize_between_processes()
 
     # accumulate predictions from all images
     coco_evaluator.accumulate()
+
+
+    
     
     # The evaluation parameters are as follows (defaults in brackets):
     #  imgIds     - [all] N img ids to use for evaluation
@@ -329,6 +331,7 @@ def evaluate(model, data_loader, device, writer=None, step_num=None):
     #  counts     - [iouThrs,recThrs,catIds,areaRng,maxDets] parameter dimensions (see above)
     #  precision  - [iouThrs x recThrs x catIds x areaRng x maxDets] precision for every evaluation setting
     #  recall     - [iouThrs x catIds x areaRng x maxDets] max recall for every evaluation setting
+    
     # Note: precision and recall==-1 for settings with no gt objects.
     coco_eval = coco_evaluator.coco_eval['bbox'].eval
     # params actually used for evaluation
@@ -374,13 +377,9 @@ def evaluate(model, data_loader, device, writer=None, step_num=None):
                 print(f"{cat['name']:8}: recall: {recall:1.2f}, precision: {prec:1.3f}")
 
     
-    
     torch.set_num_threads(n_threads)
     
-    
-    
-    
-    return coco_evaluator, loss_value
+    return coco_evaluator, val_loss
 
 
 def collate_fn(batch):
