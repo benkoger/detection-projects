@@ -379,7 +379,7 @@ def remove_annotation_category(coco, category_name, remove_image=False):
         coco: dictionary in coco format
         category_name: should be one of coco['categories'][ind]['name']
             where ind is some valid index
-        remove_index: if True remove all images and corresponding annotations
+        remove_image: if True remove all images and corresponding annotations
             where category is present. Otherwise just remove the annotations of category.
     
     Return modified coco dict.

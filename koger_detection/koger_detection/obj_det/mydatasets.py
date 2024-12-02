@@ -89,7 +89,7 @@ def filterFrame(frame):
     
 class VideoDataset(torch.utils.data.IterableDataset):
     """ Used for inference on continous videos."""
-    def __init__(self, file, to_float=False):
+    def __init__(self, file, to_float=False, preprocess=False):
         """
         Args:
             to_float: if True return frame as float from 0 to 1
@@ -97,6 +97,7 @@ class VideoDataset(torch.utils.data.IterableDataset):
         super(VideoDataset).__init__()
         self.fvs = FileVideoStream(file, transform=filterFrame).start()
         time.sleep(1)
+        self.preprocess = preprocess
         self.to_float = to_float
     
     def __iter__(self):
@@ -111,7 +112,8 @@ class VideoDataset(torch.utils.data.IterableDataset):
             if not self.fvs.more():
                 self.stop_stream()
             frame = self.fvs.read()
-            frame = torch.from_numpy(frame.transpose(2, 0, 1))
+            if self.preprocess:
+                frame = torch.from_numpy(frame.transpose(2, 0, 1))
             if self.to_float:
                 frame = frame.type('torch.FloatTensor')
                 frame /= 255.0
