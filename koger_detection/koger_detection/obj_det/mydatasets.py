@@ -84,7 +84,12 @@ class CocoDetection(torchvision.datasets.CocoDetection):
     
 
 def filterFrame(frame):
-    frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+    if frame is not None:
+        try:
+            frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        except:
+            print("FRAME")
+            print(frame)
     return frame
     
 class VideoDataset(torch.utils.data.IterableDataset):
@@ -112,6 +117,9 @@ class VideoDataset(torch.utils.data.IterableDataset):
             if not self.fvs.more():
                 self.stop_stream()
             frame = self.fvs.read()
+            if frame is None:
+                print("Empty frame. Ending stream.")
+                self.stop_stream()
             if self.preprocess:
                 frame = torch.from_numpy(frame.transpose(2, 0, 1))
             if self.to_float:
@@ -141,6 +149,10 @@ class ImageDataset(data.Dataset):
 
     def __getitem__(self, idx):
         image = cv2.imread(self.files[idx])
+        if image is None:
+            print(f"Error loading {self.files[idx]}")
+            # ideally cleaner way to handle this
+            return {"image": np.zeros((2, 2, 3), dtype=np.uint8), "filename": self.files[idx]}
         if self.rgb:
             image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB) 
         return {"image": image, "filename": self.files[idx]}

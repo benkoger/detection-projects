@@ -1,7 +1,9 @@
 import os
 import json
 from datetime import datetime
+import time
 
+import labelbox
 from labelbox import Project
 from labelbox.data.serialization import COCOConverter
 import numpy as np
@@ -47,25 +49,33 @@ def download_annotation_project(project, project_name, image_folder, json_file,
     """
     coco = coco_converter(project, verbose, extra_image_info_func)
     # coco.pop('info')
+    coco = alphabetize_categories(coco)
+    
+    with open(json_file, 'w') as file:
+        json.dump(coco, file, indent=4)
 
+    print("Annotation file downloaded.")
+
+    if save_images:
+        print(f"Starting to save {len(coco['images'])} images.")
     
     for image_info in coco['images']:
         path = os.path.join(image_folder, image_info['file_name'])
         if save_images:
             url = image_info['coco_url']
-            im = Image.open(requests.get(url, stream=True).raw)
-            im.save(path) 
+            if os.path.exists(path):
+                continue
+            try:
+                im = Image.open(requests.get(url, stream=True).raw)
+                im.save(path)
+            except:
+                print(f"Issue downloading image {url}")
 
         else:
             if not os.path.exists(path):
                 print(f"Warning image {image_info['file_name']} doesn't exist.")
                 if verbose:
                     print(f"Note: save images is currently set to {save_images}")
-
-    coco = alphabetize_categories(coco)
-    
-    with open(json_file, 'w') as file:
-        json.dump(coco, file, indent=4)
 
     
 def download_annotation_project_deprecated(project, project_name, image_folder, json_file, 

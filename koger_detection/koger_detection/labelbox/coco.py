@@ -357,6 +357,8 @@ def coco_converter(project, verbose=False, extra_image_info_func=None):
             data_row_check.append(data_row['id'])
             # Modified by Koger
             filename = f"{data_row['details']['dataset_name']}-{data_row['external_id']}"
+            if ".JPG" not in filename:
+                filename += ".JPG"
             images.append({
                 "license" : 1, "file_name" : filename,
                 "height" : label["media_attributes"]['height'], 
