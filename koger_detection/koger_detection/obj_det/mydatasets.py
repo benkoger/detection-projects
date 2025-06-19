@@ -35,40 +35,32 @@ class CocoDetection(torchvision.datasets.CocoDetection):
                 print("Transform is expected to be a albumentations Compose object")
                 return False
 
-            has_boxes = False
-            count = 0
-
-            # Sometimes transforms remove all annotatations which causes errors
-            # If that happens, try a different set of augmentations that hopefully
-            # keep at least one box
-            # WARNING: This can cause huge delays if annotations are rare with the
-            # chosen augmentation regieme
-            while not has_boxes:
-                transformed = self.transform(image=np.array(img), bboxes=boxes,
-                                             class_labels=labels, area=area)
-                transformed_image = transformed['image']
-                transformed_bboxes = transformed['bboxes']
-                transformed_labels = transformed['class_labels']
-                transformed_area = transformed['area'] 
-                
-                if len(transformed_bboxes) > 0:
-                    has_boxes = True
-                if count > 1:
-                    print(f"Warning: can't find boxes in image idx {idx} after augmentation iteration {count}. Trying again...")
-                count += 1
-                
-
+            transformed = self.transform(image=np.array(img), bboxes=boxes,
+                                            class_labels=labels, area=area)
+            transformed_image = transformed['image']
+            transformed_bboxes = transformed['bboxes']
+            transformed_labels = transformed['class_labels']
+            transformed_area = transformed['area'] 
+            
         else:
             transformed_image = np.array(img)
             transformed_bboxes = boxes
             transformed_labels = labels
             transformed_area = area
 
-        # convert everything into a torch.Tensor
-        t_boxes = torch.as_tensor(transformed_bboxes, dtype=torch.float32)
-        t_labels = torch.as_tensor(transformed_labels, dtype=torch.int64)
-        t_area = torch.as_tensor(transformed_area, dtype=torch.float32)
-        t_image_id = torch.tensor([image_id])
+        # Allow images with no boxes
+        if len(transformed_bboxes) == 0:
+            t_boxes = torch.zeros((0, 4), dtype=torch.float32)
+            t_labels = torch.zeros((0, 1), dtype=torch.int64)
+            t_area = torch.zeros((0, 1), dtype=torch.float32)
+            t_image_id = torch.tensor([image_id])
+        
+        else:
+            # convert everything into a torch.Tensor
+            t_boxes = torch.as_tensor(transformed_bboxes, dtype=torch.float32)
+            t_labels = torch.as_tensor(transformed_labels, dtype=torch.int64)
+            t_area = torch.as_tensor(transformed_area, dtype=torch.float32)
+            t_image_id = torch.tensor([image_id])
 
         # suppose all instances are not crowd
         iscrowd = torch.zeros_like(t_labels)

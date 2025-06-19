@@ -182,11 +182,12 @@ def combine_jsons(json_files, out_file=None, keep_ids=False):
                 new_image_id = images_added + 1
             new_annotations, annotation_id = get_annotations_based_on_id(
                 json_dict['annotations'], image_id, new_image_id, annotation_id)
+            new_dict['images'].append(image_dict)
+            new_dict['images'][-1]['id'] = new_image_id
             if len(new_annotations) != 0:
-                new_dict['images'].append(image_dict)
-                new_dict['images'][-1]['id'] = new_image_id
                 new_dict['annotations'].extend(new_annotations)
-                images_added += 1
+            images_added += 1
+                
 
     print('{} images added to new .json'.format(len(new_dict['images'])))
     print('{} annotations added to new .json'.format(len(new_dict['annotations'])))
