@@ -130,14 +130,16 @@ class VideoDataset(torch.utils.data.IterableDataset):
 class ImageDataset(data.Dataset):
     """ Simple image dataset for inference on a list of image paths """
 
-    def __init__(self, files, rgb=True):
+    def __init__(self, files, rgb=True, scale_image=None):
         """
         Args:
             files: list of paths to image files
             rgb: If True return image as rgb, else return bgr
+            scale_image: If not None, should be a scaling factor to resize image
         """
         self.files = files
         self.rgb = rgb
+        self.scale_image = scale_image
 
     def __getitem__(self, idx):
         image = cv2.imread(self.files[idx])
@@ -145,6 +147,8 @@ class ImageDataset(data.Dataset):
             print(f"Error loading {self.files[idx]}")
             # ideally cleaner way to handle this
             return {"image": np.zeros((2, 2, 3), dtype=np.uint8), "filename": self.files[idx]}
+        if self.scale_image is not None:
+            image = cv2.resize(image, (0,0), fx=self.scale_image, fy=self.scale_image)
         if self.rgb:
             image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB) 
         return {"image": image, "filename": self.files[idx]}

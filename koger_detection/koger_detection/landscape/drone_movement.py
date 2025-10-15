@@ -1,6 +1,7 @@
+import glob
 import os
 import time
-from typing import final
+# from typing import final
 
 import cv2
 import matplotlib.pyplot as plt
@@ -31,7 +32,7 @@ def get_warp(frame0_gray, frame1_gray, plot_inliers=True):
 
 
 def get_movement_matrix(im0_gray, im1_gray, good_points_im0,
-                        plot_inliers=False):
+                        plot_inliers=False, ransac_reproj_threshold=10):
     """
     Get homography from grayscale image 1 to grayscale image 0
     
@@ -39,6 +40,7 @@ def get_movement_matrix(im0_gray, im1_gray, good_points_im0,
     im1_gray: 2D matrix
     good_points_im0: output from cv2.goodFeaturesToTrack() for im0_gray
     plot: if True, plot points used for transform on both images
+    ransac_reproj_threshold: threshold for RANSAC inlier determination
     """
     
     
@@ -51,7 +53,7 @@ def get_movement_matrix(im0_gray, im1_gray, good_points_im0,
 
     transform, inliers = cv2.estimateAffinePartial2D(good_points1, 
                                                      good_points0, 
-                                                     ransacReprojThreshold=10
+                                                     ransacReprojThreshold=ransac_reproj_threshold
                                                     )
     warp_matrix = np.vstack((transform, np.array([0,0,1])))
     num_inliers = len(np.where(inliers==1)[0])
@@ -173,13 +175,17 @@ def get_segment_drone_movement(segment_dict):
     
     pseudo_gt_frame = pseudo_gt_frames[pseudo_gt_ind]
     pseudo_gt_features = pseudo_gt_frame_features[pseudo_gt_ind]
+
+    ransac_reproj_threshold = 3
+
     for file_num, im_focal_file in enumerate(segment_im_files[:]):
         im_focal = cv2.imread(im_focal_file)
         im_focal_gray = cv2.cvtColor(im_focal, cv2.COLOR_BGR2GRAY)
         
         warp, num_inliers = get_movement_matrix(pseudo_gt_frame, 
                                                 im_focal_gray, 
-                                                pseudo_gt_features
+                                                pseudo_gt_features,
+                                                ransac_reproj_threshold=ransac_reproj_threshold
                                                )
         if num_inliers < feature_thresh:
             # add a pseudo gt using last frame
@@ -194,7 +200,8 @@ def get_segment_drone_movement(segment_dict):
                                                     )
             warp, num_inliers = get_movement_matrix(pseudo_gt_frame, 
                                                 im_focal_gray, 
-                                                pseudo_gt_features
+                                                pseudo_gt_features,
+                                                ransac_reproj_threshold=ransac_reproj_threshold
                                                )
             if num_inliers < feature_thresh:
                 print(f"Warning. Warp features below threshold: {num_inliers}, seg num: {segment_number}.")
@@ -273,18 +280,126 @@ def process_new_anchor(image):
     """ Extract and return image and keypoint image for new anchor frame.
     
     Args:
-        image: BGR image array
+        image: BGR image array or grayscale image array
     
     Returns grayscale image and keypoint info.
     """
-    gray_im = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    if len(image.shape) == 3:
+        gray_im = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    else:
+        gray_im = image
     
     image_features = get_image_keypoints(gray_im)
     
     return gray_im, image_features
 
+def get_warps(video_file, anchor_folder, inlier_threshold=100,
+                                 max_pseudo_anchors=7, 
+                                 ransac_reproj_threshold=10,
+                                 verbose=True):
+    """ Get warp from each frame to previous anchor frame.
+    
+    Args:
+        video_file: video file
+        anchor_folder: where anchor frame files are saved
+        inlier_threshold: minimum number of points used to calculate warp
+            to last (pseudo) anchor before start using next (pseudo) anchor
+        max_pseudo_anchors: how many pseudo anchors to use before adding new
+            anchor. (To ensure good results, should be less than 10 because 
+            that is the default for the actual drone movement calculation)
+        ransac_reproj_threshold: threshold for RANSAC inlier determination
+            
+    Return list of anchor frame files and warps between them (to check quality)
+    """
+
+
+
+    anchor_files = sorted(
+        glob.glob(os.path.join(anchor_folder, "*.[jJ][pP][gG]"))
+    )
+    anchor_obs_inds = [int(os.path.splitext(f)[0].split("-")[-1]) for f in anchor_files]
+    warps = {} # warps from each frame to last anchor frame
+
+    fvs = FileVideoStream(video_file).start()
+    time.sleep(1)
+
+    # The current anchor index being used
+    anchor_ind = 0
+
+    # Prepare first anchor frame
+    raw_anchor = cv2.imread(anchor_files[anchor_ind])
+    a_frame, a_features = process_new_anchor(raw_anchor[...,::-1])
+    base_transform = np.eye(3)
+    
+    # Used for pseudo anchor frames when nessisary 
+    last_image_gray = None
+    last_warp = None
+
+    # Number of pseudo anchors already used in this anchor segment
+    num_pseudo_anchors = 0
+    
+    frame_num = 0
+    while fvs.running():
+        if not fvs.more():
+            break
+        im_focal = fvs.read()
+        if im_focal is None:
+            print("Empty frame. Ending stream.")
+            break
+
+        if verbose:
+            if frame_num % 1000 == 0:
+                print(f"{frame_num} frames processed.")
+                
+        # Make sure using the right anchor frame for this part of the video
+        # This first if statement is not beautiful check if there are more anchors
+        if anchor_ind < (len(anchor_obs_inds) - 2):
+            if frame_num == anchor_obs_inds[anchor_ind + 1]:
+                # Switch to next anchor frame
+                anchor_ind += 1
+                raw_anchor = cv2.imread(anchor_files[anchor_ind])
+                a_frame, a_features = process_new_anchor(raw_anchor[...,::-1])
+                base_transform = np.eye(3)
+                print(f"num pseudo anchors used in {anchor_ind-1}: {num_pseudo_anchors}")
+                num_pseudo_anchors = 0
+
+        # Calculate warp for next frame in video        
+        im_focal_gray = cv2.cvtColor(im_focal, cv2.COLOR_BGR2GRAY)
+        warp, num_inliers = get_movement_matrix(a_frame, im_focal_gray, 
+                                                a_features,
+                                                ransac_reproj_threshold=ransac_reproj_threshold)
+        warp = np.matmul(base_transform, warp)
+
+        # Check if need pseudo anchor frame
+        if num_inliers < inlier_threshold:
+            a_frame, a_features = process_new_anchor(last_image_gray)
+            num_pseudo_anchors += 1
+            base_transform = last_warp
+            # Recalculate warping using the new pseudo anchor
+            warp, num_inliers = get_movement_matrix(a_frame, im_focal_gray, a_features,
+                                                    ransac_reproj_threshold=ransac_reproj_threshold)
+            warp = np.matmul(base_transform, warp)
+            if num_pseudo_anchors > max_pseudo_anchors:
+                print(f"Warning using more pseudo anchors than allowed: {num_pseudo_anchors}")
+            # TODO: This conitnue matches extraction but needs to be conisdered
+            # continue
+
+         # record results
+        warps[frame_num] = {"warp": warp, "anchor_num": anchor_ind}
+
+        last_image_gray = im_focal_gray
+        last_warp = warp
+        frame_num += 1
+
+    fvs.stop()
+
+    
+    return warps
+
+
+
 def get_anchor_frames_without_log(video_file, save_folder, base_image_name, inlier_threshold=100,
-                                 max_pseudo_anchors=7, verbose=True):
+                                 max_pseudo_anchors=7, ransac_reproj_threshold=10, verbose=True):
     """ Choose anchor frames to use for SfM mapping.
     
     Chooses anchor frames based on quality of local movement estimates (quantified
@@ -299,6 +414,7 @@ def get_anchor_frames_without_log(video_file, save_folder, base_image_name, inli
         max_pseudo_anchors: how many pseudo anchors to use before adding new
             anchor. (To ensure good results, should be less than 10 because 
             that is the default for the actual drone movement calculation)
+        ransac_reproj_threshold: threshold for RANSAC inlier determination
             
     Return list of anchor frame files and warps between them (to check quality)
     """
@@ -336,14 +452,15 @@ def get_anchor_frames_without_log(video_file, save_folder, base_image_name, inli
             # This happens first time thorugh the loop
             anchor_frame, anchor_features = process_new_anchor(focal_frame)
             anchor_file = os.path.join(save_folder, f"{base_image_name}-{0:05d}.jpg")
-            cv2.imwrite(anchor_file, focal_frame)
+            cv2.imwrite(anchor_file, focal_frame, [cv2.IMWRITE_JPEG_QUALITY, 100])
             anchor_files.append(anchor_file)
             anchor_obs_inds.append(0)
             last_frame = focal_frame
 
         im_focal_gray = cv2.cvtColor(focal_frame, cv2.COLOR_BGR2GRAY)
         warp, num_inliers = get_movement_matrix(anchor_frame, im_focal_gray, 
-                                                anchor_features)
+                                                anchor_features,
+                                                ransac_reproj_threshold=ransac_reproj_threshold)
         warp = np.matmul(base_transform, warp)
         if num_inliers < inlier_threshold:
             anchor_frame, anchor_features = process_new_anchor(last_frame)
@@ -354,13 +471,12 @@ def get_anchor_frames_without_log(video_file, save_folder, base_image_name, inli
                 anchor_file = os.path.join(save_folder, 
                                            f"{base_image_name}-{frame_num-1:05d}.jpg"
                                            )
-                cv2.imwrite(anchor_file, last_frame)
+                cv2.imwrite(anchor_file, last_frame, [cv2.IMWRITE_JPEG_QUALITY, 100])
                 anchor_files.append(anchor_file)
                 final_warps.append(np.copy(last_warp))
                 anchor_obs_inds.append(frame_num-1)
                 base_transform = np.eye(3)
                 num_pseudo_anchors = 0
-            continue
         last_warp = warp
         last_frame = focal_frame
         frame_num += 1
@@ -379,86 +495,86 @@ def get_anchor_frames_without_log(video_file, save_folder, base_image_name, inli
     return anchor_info, final_warps
 
 
-def get_warps_for_video(video_file, inlier_threshold=100,
-                                 max_pseudo_anchors=7, verbose=True):
-    """ Choose anchor frames to use for SfM mapping.
+# def get_warps_for_video(video_file, inlier_threshold=100,
+#                                  max_pseudo_anchors=7, verbose=True):
+#     """ Choose anchor frames to use for SfM mapping.
     
-    Chooses anchor frames based on quality of local movement estimates (quantified
-    by number of valid features to lst anchor) instead of from drone log information.
+#     Chooses anchor frames based on quality of local movement estimates (quantified
+#     by number of valid features to lst anchor) instead of from drone log information.
     
-    Args:
-        video_file: video file to process
-        inlier_threshold: minimum number of points used to calculate warp
-            to last (pseudo) anchor before start using next (pseudo) anchor
-        max_pseudo_anchors: how many pseudo anchors to use before adding new
-            anchor. (To ensure good results, should be less than 10 because 
-            that is the default for the actual drone movement calculation)
+#     Args:
+#         video_file: video file to process
+#         inlier_threshold: minimum number of points used to calculate warp
+#             to last (pseudo) anchor before start using next (pseudo) anchor
+#         max_pseudo_anchors: how many pseudo anchors to use before adding new
+#             anchor. (To ensure good results, should be less than 10 because 
+#             that is the default for the actual drone movement calculation)
             
-    Return list of anchor frame files and warps between them (to check quality)
-    """
+#     Return list of anchor frame files and warps between them (to check quality)
+#     """
 
-    anchor_files = [] # list of anchor filenames
-    anchor_obs_inds = [] # list of the observation index for each anchor
-    final_warps = [] # list of warps from each frame to the last
+#     anchor_files = [] # list of anchor filenames
+#     anchor_obs_inds = [] # list of the observation index for each anchor
+#     final_warps = [] # list of warps from each frame to the last
 
-    anchor_frame = None
-    # Number of pseudo anchors already used in this anchor segment
-    num_pseudo_anchors = 0
-    # Warp used for the previous frame (save this one, not the warp assosiated
-    # with the first frame that doesn't have enough features)
-    last_warp = None
-    # Warp to get from current pseudo anchor frame back to the anchor frame
-    base_transform = np.eye(3)
+#     anchor_frame = None
+#     # Number of pseudo anchors already used in this anchor segment
+#     num_pseudo_anchors = 0
+#     # Warp used for the previous frame (save this one, not the warp assosiated
+#     # with the first frame that doesn't have enough features)
+#     last_warp = None
+#     # Warp to get from current pseudo anchor frame back to the anchor frame
+#     base_transform = np.eye(3)
 
-    # Read in video file
-    fvs = FileVideoStream(video_file).start()
-    time.sleep(1)
-    frame_num = 0
-    while fvs.running():
-        if not fvs.more():
-            break
-        focal_frame = fvs.read()
-        if focal_frame is None:
-            print("Empty frame. Ending stream.")
-            break
-        if verbose:
-            if frame_num % 2000 == 0:
-                print(f"{frame_num} frames processed.",
-                      f" {len(anchor_files)} anchors saved.")
+#     # Read in video file
+#     fvs = FileVideoStream(video_file).start()
+#     time.sleep(1)
+#     frame_num = 0
+#     while fvs.running():
+#         if not fvs.more():
+#             break
+#         focal_frame = fvs.read()
+#         if focal_frame is None:
+#             print("Empty frame. Ending stream.")
+#             break
+#         if verbose:
+#             if frame_num % 2000 == 0:
+#                 print(f"{frame_num} frames processed.",
+#                       f" {len(anchor_files)} anchors saved.")
                 
-        if anchor_frame is None:
-            # This happens first time thorugh the loop
-            anchor_frame, anchor_features = process_new_anchor(focal_frame)
-            anchor_obs_inds.append(0)
-            last_frame = focal_frame
+#         if anchor_frame is None:
+#             # This happens first time thorugh the loop
+#             anchor_frame, anchor_features = process_new_anchor(focal_frame)
+#             anchor_obs_inds.append(0)
+#             last_frame = focal_frame
 
-        im_focal_gray = cv2.cvtColor(focal_frame, cv2.COLOR_BGR2GRAY)
-        warp, num_inliers = get_movement_matrix(anchor_frame, im_focal_gray, 
-                                                anchor_features)
-        warp = np.matmul(base_transform, warp)
-        if num_inliers < inlier_threshold:
-            anchor_frame, anchor_features = process_new_anchor(last_frame)
-            if num_pseudo_anchors < max_pseudo_anchors:
-                num_pseudo_anchors += 1
-                base_transform = last_warp
-            else:
-                anchor_obs_inds.append(frame_num-1)
-                base_transform = np.eye(3)
-                num_pseudo_anchors = 0
-            continue
-        last_warp = warp
-        last_frame = focal_frame
-        frame_num += 1
-        final_warps.append(np.copy(last_warp))
-    fvs.stop()
-    # Add last frame no matter what
-    anchor_obs_inds.append(frame_num)
-    final_warps[-1] = np.eye(3)
+#         im_focal_gray = cv2.cvtColor(focal_frame, cv2.COLOR_BGR2GRAY)
+#         warp, num_inliers = get_movement_matrix(anchor_frame, im_focal_gray, 
+#                                                 anchor_features)
+#         warp = np.matmul(base_transform, warp)
+#         if num_inliers < inlier_threshold:
+#             anchor_frame, anchor_features = process_new_anchor(last_frame)
+#             if num_pseudo_anchors < max_pseudo_anchors:
+#                 num_pseudo_anchors += 1
+#                 base_transform = last_warp
+#             else:
+#                 anchor_obs_inds.append(frame_num-1)
+#                 base_transform = np.eye(3)
+#                 num_pseudo_anchors = 0
+#             continue
+#         last_warp = warp
+#         last_frame = focal_frame
+#         frame_num += 1
+#         final_warps.append(np.copy(last_warp))
+#     fvs.stop()
+#     # Add last frame no matter what
+#     anchor_obs_inds.append(frame_num)
+#     final_warps[-1] = np.eye(3)
     
-    anchor_info = pd.DataFrame(list(zip(anchor_files, anchor_obs_inds)),
-                               columns=['filename', 'obs_ind'])
+#     anchor_info = pd.DataFrame(list(zip(anchor_files, anchor_obs_inds)),
+#                                columns=['filename', 'obs_ind'])
     
-    return final_warps
+#     return final_warps
 
 if __name__ == "__main__":
     video_name = "bear_big2a_2023_08_16_koger_01_01_DJI_20230816175814_0573_D"
