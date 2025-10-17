@@ -7,6 +7,7 @@ import torch
 import torchvision
 import torch.utils.data as data
 
+import requests as req
 
 class CocoDetection(torchvision.datasets.CocoDetection):
     """ Coco dataloader that is compatible with FasterRcnn """
@@ -155,6 +156,54 @@ class ImageDataset(data.Dataset):
 
     def __len__(self):
         return len(self.files)
+    
+class S3ImageDataset(data.Dataset):
+    """ Designed for inference on a list of image urls stored in S3 """
+
+    def __init__(self, base_url, survey_uuid, user_web_api_key, 
+                 s3_client, bucket_name, scale=None, rgb=True):
+        """
+        Args:
+            base_url: Base url for web api
+            survey_uuid: Survey uuid string
+            user_web_api_key: User web api key string
+            s3_client: Boto3 s3 client
+            bucket_name: Name of s3 bucket
+            scale: how much to scale image
+            rgb: If True return image as rgb, else return bgr
+        """
+        headers = {'credentials': 'include'}
+
+        with req.Session() as s:
+            s.post(f"{base_url}/authenticate", json={"external-id": user_web_api_key})
+            resp = s.get(f"{base_url}/get/survey/{survey_uuid}/images/all", headers=headers)
+            if resp.status_code == 404:
+                raise ValueError(f"Status 404 for survey {survey_uuid}")
+        self.resp = resp.json()
+        self.s3_client = s3_client
+        self.bucket_name = bucket_name
+        self.rgb = rgb
+        self.scale = scale
+
+    def __getitem__(self, idx):
+        image_key = self.resp[idx]['img_key']
+        img_data = self.s3_client.get_object(Bucket=self.bucket_name, Key=image_key)['Body'].read()
+        image = cv2.imdecode(np.frombuffer(img_data, np.uint8), cv2.IMREAD_COLOR)
+
+        if image is None:
+            print(f"Error loading {self.files[idx]}")
+            # ideally cleaner way to handle this
+            return {"image": np.zeros((2, 2, 3), dtype=np.uint8), "filename": self.files[idx]}
+        if self.scale is not None:
+            image = cv2.resize(image, (0,0), fx=self.scale, fy=self.scale)
+        if self.rgb:
+            image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB) 
+        return {"image": image, "filename": self.resp[idx]['name'], "image_uuid": self.resp[idx]['uuid']}
+
+    def __len__(self):
+        return len(self.resp)
+    
+
 
     
         
