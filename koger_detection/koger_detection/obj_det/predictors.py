@@ -21,7 +21,7 @@ class Predictor:
             cfg.pop("model_weights_pth")
             
         self.model = get_detection_model(**cfg)
-        self.model.load_state_dict(torch.load(model_weights_path))
+        self.model.load_state_dict(torch.load(model_weights_path, map_location='cpu'))
         
         # train on the GPU or on the CPU, if a GPU is not available
         if torch.cuda.is_available():
