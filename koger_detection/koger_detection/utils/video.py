@@ -4,7 +4,7 @@ import time
 from imutils.video import FileVideoStream
 from imutils.video import FPS
 import numpy as np
-import argparse
+# import argparse
 import imutils
 import cv2
 

@@ -6,7 +6,6 @@ from datetime import datetime
 from typing import Tuple, List, Dict, Optional, Union
 
 import cv2
-from dotenv import load_dotenv
 import numpy as np
 
 import torch

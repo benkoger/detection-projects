@@ -1,8 +1,27 @@
 [build-system]
+
 requires = ["setuptools >= 61.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "koger_detection"
 version = "0.1.0"
+# Actually only tested with pycocotools 2.0
+# But that relies on Cython to be preinstalled
+# This new version needs to be tested.
+dependencies = [
+    "albumentations==2.0.5",
+    "imutils==0.5.4",
+    "labelbox==3.75.0",
+    "numpy==1.26.4",
+    "pandas==2.2.2",
+    "pillow==10.3.0",
+    "pycocotools==2.0.11",
+    "requests==2.31.0",
+    "shapely==2.0.4",
+    "tabulate==0.9.0",
+    "tensorboard==2.17.0",
+    "tqdm==4.66.4"
+]
 license = {text = "Apache License (2.0)"}
+

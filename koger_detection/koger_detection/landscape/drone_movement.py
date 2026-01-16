@@ -9,7 +9,7 @@ import numpy as np
 import pandas as pd
 
 from imutils.video import FileVideoStream
-from sklearn import base
+# from sklearn import base
 
 # import koger_general_functions as kgf
 # import mapping_functions as kmap

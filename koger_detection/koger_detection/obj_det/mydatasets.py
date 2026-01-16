@@ -179,6 +179,8 @@ class S3ImageDataset(data.Dataset):
             resp = s.get(f"{base_url}/get/survey/{survey_uuid}/images/all", headers=headers)
             if resp.status_code == 404:
                 raise ValueError(f"Status 404 for survey {survey_uuid}")
+            if resp.status_code == 401:
+                raise ValueError(f"Status 401 for survey {survey_uuid}")
         self.resp = resp.json()
         self.s3_client = s3_client
         self.bucket_name = bucket_name

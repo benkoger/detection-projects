@@ -2,12 +2,19 @@
 
 Notebooks and code for efficiently annotating, training, and using object detection models.
 
-## Initial set up
+## Initial set up to use the koger_detection package
 
 ### pip install
-The koger_detection package must be pip installed locally for the jupyter notebooks in adjacent folder to see it. After cloning this repository locally, use the terminal to go to the folder in detection-projects called koger_detection (the outer of the two koger_detection folders. The one you want contains a file called pyproject.toml and a second folder called koger_detection.)  and run ```pip install -e .``` The period is part of the command to run indicating it should run in the current directory. The -e means that codes koger_detection won't need to be reinstalled if there are changes to the code. As always, it is recomended to do this in a virtual environment.
+The koger_detection package can be pip installed locally for use in other projects or in the jupyter notebooks in example_notebooks folder. 
+
+Pytorch and torchvion must be installed before using the koger_detection package and is not installed automatically below. Follow instructions here to install: https://pytorch.org/get-started/locally/ 
+
+After cloning this repository locally, use the terminal to go to the folder in detection-projects called koger_detection (the outer of the two koger_detection folders. The one you want contains a file called pyproject.toml and a second folder called koger_detection.)  and run ```pip install -e .``` The period is part of the command to run indicating it should run in the current directory. The -e means that codes koger_detection won't need to be reinstalled if there are changes to the code. As always, it is recomended to do this in a virtual environment. The dependencies installed by default specify specific versions for each package that may not be required (other versions may work to). To not install these dependencies, run ```pip install --no-deps -e .```
+
+koger_detection.obj_det.tracktor needs additional depedencies but this part of the package is not used and can be ignored. 
 
 ## Expected structure of projects shown as examples
+### This can be ignored if you are just using the koger_detection package. Only used in the example notebooks
 
 ### .env file
 You must create a plaintext .env file that is saved in the detection-projects folder and defines certain required environment variables listed below. See example_env.txt for an example text file that can be renamed (to .env) and filled in. See https://stackoverflow.com/questions/41546883/what-is-the-use-of-python-dotenv for more info on .env in general.
