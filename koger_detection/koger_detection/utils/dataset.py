@@ -36,7 +36,7 @@ def get_bounding_box_areas(coco_json):
     return bbox_areas
 
 def scale_annotations_and_images(coco_json, scale_factor, image_folder, 
-                                 new_annotation_file):
+                                 new_annotation_file, use_urls=False):
     """ Scale images and annotations by some factor.
     
     Args:
@@ -50,13 +50,14 @@ def scale_annotations_and_images(coco_json, scale_factor, image_folder,
         ann['bbox'] = [int(v * scale_factor) for v in ann['bbox']]
     
     for image_info in coco_json['images']:
-        scaled_file = f"scaled-{scale_factor}-{image_info['file_name']}"
-        image_info['file_name'] = scaled_file
-
         # Load image
-        url = image_info['coco_url']
-        im = Image.open(requests.get(url, stream=True).raw)
-    
+        if use_urls:
+            url = image_info['coco_url']
+            im = Image.open(requests.get(url, stream=True).raw)
+        else:
+            image_path = os.path.join(image_folder, image_info['file_name'])
+            im = Image.open(image_path)
+
         scaled_width = int(math.ceil(im.size[0]*scale_factor))
         scaled_height = int(math.ceil(im.size[1]*scale_factor))
         
@@ -68,6 +69,9 @@ def scale_annotations_and_images(coco_json, scale_factor, image_folder,
         else:
             resample = PIL.Image.BICUBIC
         im = im.resize((scaled_width, scaled_height), resample=resample) 
+
+        scaled_file = f"scaled-{scale_factor}-{image_info['file_name']}"
+        image_info['file_name'] = scaled_file
         path = os.path.join(image_folder, scaled_file)
         im.save(path) 
     
