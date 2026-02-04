@@ -8,6 +8,8 @@ import torchvision
 import torch.utils.data as data
 
 import requests as req
+import json
+import base64
 
 class CocoDetection(torchvision.datasets.CocoDetection):
     """ Coco dataloader that is compatible with FasterRcnn """
@@ -191,9 +193,10 @@ class S3ImageDataset(data.Dataset):
         image = cv2.imdecode(np.frombuffer(img_data, np.uint8), cv2.IMREAD_COLOR)
 
         if image is None:
-            print(f"Error loading {self.files[idx]}")
-            # ideally cleaner way to handle this
-            return {"image": np.zeros((2, 2, 3), dtype=np.uint8), "filename": self.files[idx]}
+            # Ideally a cleaner way to handle this, but report the key/name we tried to load
+            name = self.resp[idx].get('name', image_key)
+            print(f"Error loading image with key {image_key} (name: {name})")
+            return {"image": np.zeros((2, 2, 3), dtype=np.uint8), "filename": name}
         if self.scale is not None:
             image = cv2.resize(image, (0,0), fx=self.scale, fy=self.scale)
         if self.rgb:
@@ -202,8 +205,3 @@ class S3ImageDataset(data.Dataset):
 
     def __len__(self):
         return len(self.resp)
-    
-
-
-    
-        
