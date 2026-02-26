@@ -5,7 +5,6 @@ import time
 
 import labelbox
 from labelbox import Project
-from labelbox.data.serialization import COCOConverter
 import numpy as np
 from PIL import Image
 import requests
@@ -59,6 +58,54 @@ def download_annotation_project(project, project_name, image_folder, json_file,
     if save_images:
         print(f"Starting to save {len(coco['images'])} images.")
     
+        for image_info in coco['images']:
+            path = os.path.join(image_folder, image_info['file_name'])
+            if save_images:
+                url = image_info['coco_url']
+                if os.path.exists(path):
+                    continue
+                try:
+                    im = Image.open(requests.get(url, stream=True).raw)
+                    im.save(path)
+                except:
+                    print(f"Issue downloading image {url}")
+
+            else:
+                if not os.path.exists(path):
+                    print(f"Warning image {image_info['file_name']} doesn't exist.")
+                    if verbose:
+                        print(f"Note: save images is currently set to {save_images}")
+
+
+def download_annotation_project_deprecated(project, project_name, image_folder, json_file, 
+                                save_images=False, verbose=False,
+                               extra_image_info_func=None):
+    """ Download dataset from labelbox using old labelbox format.
+    
+    Args:
+        project: labelbox project
+        project_name: project name (used for image file names)
+        image_folder: path where images should be downloaded to
+        json_file: full path where coco json should be saved
+        save_images: if images should also be saved
+        verbose: If True print skipped and unsaved images
+        extra_image_info_func: a function that takes a labelbox label and project
+            and returns a dictionary containing info that should be saved to image 
+            info in output coco json but isn't normally added (could be something 
+            like image classification annoations i.e. nightime)
+    """
+    coco = coco_converter(project, verbose, extra_image_info_func)
+    # coco.pop('info')
+    coco = alphabetize_categories(coco)
+    
+    with open(json_file, 'w') as file:
+        json.dump(coco, file, indent=4)
+
+    print("Annotation file downloaded.")
+
+    if save_images:
+        print(f"Starting to save {len(coco['images'])} images.")
+    
     for image_info in coco['images']:
         path = os.path.join(image_folder, image_info['file_name'])
         if save_images:
@@ -77,55 +124,6 @@ def download_annotation_project(project, project_name, image_folder, json_file,
                 if verbose:
                     print(f"Note: save images is currently set to {save_images}")
 
-    
-def download_annotation_project_deprecated(project, project_name, image_folder, json_file, 
-                                save_images=False, verbose=False):
-    """ Download dataset from labelbox using old labelbox format.
-    
-    Args:
-        project: labelbox project
-        project_name: project name (used for image file names)
-        image_folder: path where images should be downloaded to
-        json_file: full path where coco json should be saved
-        save_images: if images should also be saved
-        verbose: If True print skipped and unsaved images
-    """
-    labels = []
-    project_labels = project.label_generator()
-    image_num = 0
-    for proj_label_num, label in enumerate(project_labels):
-        current_time = get_time_as_int()
-        filename = f"{current_time}.jpg"
-        path = os.path.join(image_folder, filename)
-        if len(label.annotations) == 0:
-            if verbose:
-                print(f"No annotations in image {label_num}")
-            continue
-        if save_images:
-            im = Image.fromarray(label.data.value)
-            im.save(path) 
-        else:
-            if not os.path.exists(path):
-                print(f"Warning image for annotation {label_num} doesn't exist.")
-                if verbose:
-                    print(f"Note: save images is currently set to {save_images}")
-                
-            continue
-        label.data.file_path = filename
-        labels.append(label)
-        image_num += 1
-
-    coco = COCOConverter.serialize_instances(
-        labels = labels, 
-        image_root = image_folder,
-        ignore_existing_data=True
-    )
-    coco.pop('info')
-
-    coco = alphabetize_categories(coco)
-    
-    with open(json_file, 'w') as file:
-        json.dump(coco, file, indent=4)
 
 def download_annotation_projects(annotation_folder, client, 
                                  project_names, download_images=True,

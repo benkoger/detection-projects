@@ -309,9 +309,149 @@ def remove_empty_annotations(labels_list):
         cleaned_labels_list.append(label)
 
     return cleaned_labels_list
-    
 
 def coco_converter(project, verbose=False, extra_image_info_func=None):
+    """ Given a project and a list of labels, will create the COCO export json
+    Args:
+        project (labelbox.schema.project.Project)   :   Labelbox project object
+        verbose: prints info about process if True
+        extra_image_info_func: a function that takes a labelbox label and project
+            and returns a dictionary containing info that should be saved to image 
+            info in output coco json but isn't normally added (could be something 
+            like image classification annoations i.e. nightime)
+    Returns:
+    """
+
+    export_params= {
+        "label_details": True,
+        "data_row_details": True,
+        }
+
+    filters= {}
+
+    export_task = project.export(params=export_params, filters=filters)
+    export_task.wait_till_done()
+
+    export_json = [data_row.json for data_row in export_task.get_buffered_stream()]
+
+    # Info section generated from project information
+    info = {
+        'description' : project.name,
+        'url' : f'https://app.labelbox.com/projects/{project.uid}/overview',
+        'version' : "1.0",  'year' : datetime.datetime.now().year,
+        'contributor' : project.created_by().email,
+        'date_created' : datetime.datetime.now().strftime('%Y/%m/%d'),
+    }
+    # Licenses section is left empty
+
+    licenses = [ { "url" : "N/A", "id" : 1, "name" : "N/A" } ]
+
+    # Remove any rows without annotations
+    # Modified by Koger: check if image has annotations
+    labels_list = remove_empty_annotations(export_json)
+
+    images = []
+    data_row_check = [] # This is a check for projects where one data row has multiple labels (consensus, benchmark)
+    # Modified by Koger to add ann_ind so image ids used in coco json are ints and not the labelbox row id
+    for ann_ind, label in enumerate(labels_list):
+        data_row = label["data_row"]
+        if data_row['id'] not in data_row_check:
+            data_row_check.append(data_row['id'])
+            # Modified by Koger
+            filename = f"{data_row['details']['dataset_name']}-{data_row['external_id']}"
+            if ".JPG" not in filename:
+                filename += ".JPG"
+            images.append({
+                "license" : 1, "file_name" : filename,
+                "height" : label["media_attributes"]['height'], 
+                "width" : label["media_attributes"]['width'],
+                "date_captured" : label["projects"][project.uid]["labels"][0]["label_details"]["created_at"], # data_row.created_at.strftime('%Y-%m-%d %H:%M:%S'),
+                "id" : ann_ind, "coco_url": data_row["row_data"]
+            })
+        if extra_image_info_func is not None:
+            # There may be project specific information to add to the image data (classifications)
+            # Assumes added_image_info_func is a function that takes a label and returns a dictionary
+            extra_info_dict = extra_image_info_func(label, project)
+            images[-1].update(extra_info_dict)
+    if verbose:
+        print(f'\nData Rows Converted into a COCO Dataset.')  
+
+    annotations = []
+    if verbose:
+        print(f'\nConverting Annotations into the COCO Format...\n')
+    ontology_index = index_ontology(project.ontology().normalized) 
+    global_max_keypoints = 0
+    futures = []
+    with ThreadPoolExecutor() as exc:
+        # Modified by Koger to add ann_ind so image ids used in coco json are ints and not the labelbox row id
+        for ann_ind, label in enumerate(labels_list):
+            idx = 0
+            for annotation in label["projects"][project.uid]['labels'][idx]['annotations']['objects']:
+                futures.append(exc.submit(coco_annotation_converter, ann_ind, annotation, ontology_index))
+            idx += 1
+        for f in tqdm(as_completed(futures)):
+            res = f.result()
+            if int(res[1]) > global_max_keypoints:
+                global_max_keypoints = int(copy.deepcopy(res[1]))
+            annotations.append(res[0])
+    if verbose:
+        print(f'\nAnnotation Conversion Complete. Converted {len(annotations)} annotations into the COCO Format.') 
+
+    categories = []
+
+    if verbose:
+        print(f'\nConverting the Ontology into the COCO Dataset Format...') 
+    for featureSchemaId in ontology_index:
+        if ontology_index[featureSchemaId]["type"] == "line": 
+            keypoints = []
+            skeleton = []
+            for i in range(0, global_max_keypoints): 
+                keypoints.append(str("line_")+str(i+1))
+                skeleton.append([str(i), str(i+1)])
+            categories.append({
+                "supercategory" : ontology_index[featureSchemaId]['name'],
+                "id" : str(ontology_index[featureSchemaId]["encoded_value"]),
+                "name" : ontology_index[featureSchemaId]['name'],
+                "keypoints" : keypoints,
+                "skeleton" : skeleton,
+            })
+        elif ontology_index[featureSchemaId]["type"] == "point": 
+            categories.append({
+                "supercategory" : ontology_index[featureSchemaId]['name'],
+                "id" : str(ontology_index[featureSchemaId]["encoded_value"]),
+                "name" : ontology_index[featureSchemaId]['name'],
+                "keypoints" : ['point'],
+                "skeleton" : ["0", "0"],
+            })        
+        elif ontology_index[featureSchemaId]['kind'] == 'tool':
+            categories.append({
+                "supercategory" : ontology_index[featureSchemaId]['name'],
+                "id" : str(ontology_index[featureSchemaId]["encoded_value"]),
+                "name" : ontology_index[featureSchemaId]['name']
+            })     
+        elif len(ontology_index[featureSchemaId]['parent_featureSchemaIds']) == 2:
+            supercategory = ontology_index[ontology_index[featureSchemaId]['parent_featureSchemaIds'][0]]['name']
+            categories.append({
+                "supercategory" : supercategory,
+                "id" : str(ontology_index[featureSchemaId]["encoded_value"]),
+                "name" : ontology_index[featureSchemaId]['name']
+            })
+    if verbose:
+        print(f'\nOntology Conversion Complete')  
+
+    coco_dataset = {
+        "info" : info,
+        "licenses" : licenses,
+        "images" : images,
+        "annotations" : annotations,
+        "categories" : categories
+    }      
+    if verbose:
+        print(f'\nCOCO Conversion Complete')    
+    return coco_dataset
+    
+
+def coco_converter_deprecated(project, verbose=False, extra_image_info_func=None):
     """ Given a project and a list of labels, will create the COCO export json
     Args:
         project (labelbox.schema.project.Project)   :   Labelbox project object
