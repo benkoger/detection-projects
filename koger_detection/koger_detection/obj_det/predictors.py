@@ -25,11 +25,11 @@ class Predictor:
         
         # train on the GPU or on the CPU, if a GPU is not available
         if torch.cuda.is_available():
-            device = torch.device('cuda')  
+            self.device = torch.device('cuda')  
         else:
-            device = torch.device('cpu')
+            self.device = torch.device('cpu')
         
-        self.model.to(device)
+        self.model.to(self.device)
         self.model.eval()
         
     def __call__(self, image):
