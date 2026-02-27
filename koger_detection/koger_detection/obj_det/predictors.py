@@ -50,3 +50,27 @@ class Predictor:
             image = image.cuda()
         with torch.no_grad():
             return self.model([image])[0]
+    
+    def predict_many(self, images):
+        """
+        images: list of HxWx3 uint8/float numpy arrays OR torch tensors.
+        Returns: list[dict] length == len(images)
+        """
+        imgs = []
+        for image in images:
+            if isinstance(image, torch.Tensor):
+                x = image.to(dtype=torch.float32, device=self.device)
+            elif isinstance(image, np.ndarray):
+                x = torch.as_tensor(image, dtype=torch.float32, device=self.device)
+            else:
+                raise ValueError("Expects image to be torch tensor or numpy array")
+
+            # x is HWC float
+            if self.invert_color_channel:
+                x = x[:, :, [2, 1, 0]]
+
+            x = x.permute(2, 0, 1) / 255.0  # CHW in [0,1]
+            imgs.append(x)
+
+        with torch.no_grad():
+            return self.model(imgs)  # torchvision detectors return list[dict]
