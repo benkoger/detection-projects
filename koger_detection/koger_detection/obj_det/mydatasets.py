@@ -175,7 +175,7 @@ class S3ImageDataset(data.Dataset):
         headers = {'credentials': 'include'}
 
         with req.Session() as s:
-            s.post(f"{base_url}/authenticate", json={"external-id": user_web_api_key})
+            s.post(f"{base_url}/users/authenticate", json={"external-id": user_web_api_key})
             resp = s.get(f"{base_url}/surveys/{survey_uuid}/images", headers=headers)
             if resp.status_code == 404:
                 raise ValueError(f"Status 404 for survey {survey_uuid}")
