@@ -5,5 +5,6 @@ def get_lr_scheduler(optimizer, name, **cfg_lr):
     if name == "StepLR":
         return torch.optim.lr_scheduler.StepLR(optimizer, **cfg_lr)
     if name == "ReduceOnPlateau":
-        return torch.optim.lr_scheduler.ReduceLROnPlateau(
-            optimizer, **cfg_lr)
+        return torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, **cfg_lr)
+    if name == "CosineAnnealingLR":
+        return torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, **cfg_lr)
