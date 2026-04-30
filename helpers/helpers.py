@@ -10,6 +10,25 @@ from koger_detection.utils.json import rename_categories
 # Default mapping that collapses predator and deer subcategories into broader
 # classes. All other categories are mapped to themselves so rename_categories
 # preserves them.
+DEFAULT_SUPERCATEGORIES = {
+    "Bear": "predator",
+    "Canid": "predator",
+    "badger": "predator",
+    "Deer": "ungulate",
+    "elk": "ungulate",
+    "moose": "ungulate",
+}
+
+
+def assign_supercategories(coco, supercategories=None, default="other"):
+    """Set the 'supercategory' field on each entry of coco['categories']."""
+    if supercategories is None:
+        supercategories = DEFAULT_SUPERCATEGORIES
+    for cat in coco["categories"]:
+        cat["supercategory"] = supercategories.get(cat["name"], default)
+    return coco
+
+
 DEFAULT_CATEGORY_MERGES = {
     "coyote": "Canid",
     "wolf": "Canid",
