@@ -49,6 +49,15 @@ def merge_categories(coco, category_merges=None, out_file=None):
         name = cat["name"]
         full_mapping[name] = category_merges.get(name, name)
 
+    valid_cat_ids = {cat["id"] for cat in coco["categories"]}
+    orphans = [a for a in coco["annotations"] if a["category_id"] not in valid_cat_ids]
+    if orphans:
+        bad_ids = sorted({a["category_id"] for a in orphans})
+        print(f"Warning: dropping {len(orphans)} annotations with unknown "
+              f"category_id(s) {bad_ids} (not in coco['categories']).")
+        coco["annotations"] = [a for a in coco["annotations"]
+                               if a["category_id"] in valid_cat_ids]
+
     return rename_categories(coco, full_mapping, out_file=out_file)
 
 
