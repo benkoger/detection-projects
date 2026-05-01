@@ -6,6 +6,46 @@ from typing import Sequence
 from PIL import Image
 
 
+# pybioclip pulls BioCLIP-2 from this HuggingFace repo by default.
+BIOCLIP2_REPO_ID = "imageomics/bioclip-2"
+BIOCLIP2_PROBE_FILES = ("open_clip_model.safetensors", "open_clip_config.json")
+
+
+def bioclip_cache_status(repo_id: str = BIOCLIP2_REPO_ID) -> dict:
+    """Inspect the local HF cache to report whether BioCLIP-2 weights are present.
+
+    Returns a dict with keys:
+      - status: 'cached' | 'partial' | 'missing' | 'unknown'
+      - cache_dir: which HF cache directory was checked
+      - missing: list of probe filenames not found in the cache
+      - cached_paths: dict of probe_filename -> absolute local path (for hits)
+    """
+    try:
+        from huggingface_hub import try_to_load_from_cache
+        from huggingface_hub.constants import HF_HUB_CACHE
+    except ImportError:
+        return {"status": "unknown", "cache_dir": None,
+                "missing": list(BIOCLIP2_PROBE_FILES), "cached_paths": {}}
+
+    cached, missing = {}, []
+    for fname in BIOCLIP2_PROBE_FILES:
+        path = try_to_load_from_cache(repo_id=repo_id, filename=fname)
+        if path is None:
+            missing.append(fname)
+        else:
+            cached[fname] = str(path)
+
+    if not missing:
+        status = "cached"
+    elif cached:
+        status = "partial"
+    else:
+        status = "missing"
+
+    return {"status": status, "cache_dir": HF_HUB_CACHE,
+            "missing": missing, "cached_paths": cached}
+
+
 @dataclass
 class Classification:
     fine_label: str            # whatever BioCLIP returned (e.g. "coyote")

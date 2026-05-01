@@ -12,7 +12,7 @@ import time
 import numpy as np
 from PIL import Image
 
-from wytrap.classifier import Classifier
+from wytrap.classifier import Classifier, bioclip_cache_status
 from wytrap.detector import Detector
 from wytrap.io import (
     DetectionRecord,
@@ -142,6 +142,19 @@ def process_folder(input_dir: str | Path,
          f"keep_labels={sorted(detector.keep_labels)})")
 
     plog("Loading BioCLIP-2 classifier", banner=True)
+    cache_info = bioclip_cache_status()
+    if cache_info["status"] == "cached":
+        plog(f"weights source    : LOCAL CACHE ({cache_info['cache_dir']})")
+        for fname, path in cache_info["cached_paths"].items():
+            plog(f"  hit             : {fname} -> {path}")
+    elif cache_info["status"] == "partial":
+        plog(f"weights source    : PARTIAL CACHE ({cache_info['cache_dir']}) "
+             f"- will download {cache_info['missing']}")
+    elif cache_info["status"] == "missing":
+        plog(f"weights source    : REMOTE (HuggingFace) - downloading to "
+             f"{cache_info['cache_dir']} on first use")
+    else:
+        plog("weights source    : unknown (huggingface_hub probe failed)")
     classifier = Classifier(species=species_list, topk=cls_topk)
     plog(f"classifier ready ({len(classifier.species)} text embeddings cached)")
 
