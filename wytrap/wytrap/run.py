@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections import Counter
+from datetime import datetime
 from pathlib import Path
 from typing import Iterable, Sequence
 import sys
@@ -22,6 +24,28 @@ from wytrap.io import (
 from wytrap.species_lists import load_species
 
 IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".tif", ".tiff", ".bmp"}
+
+
+def _make_logger(log: callable, t_start: float):
+    def _log(msg: str = "", *, banner: bool = False) -> None:
+        if banner:
+            bar = "=" * 60
+            log(bar)
+            log(f"  {msg}")
+            log(bar)
+            return
+        elapsed = time.time() - t_start
+        stamp = datetime.now().strftime("%H:%M:%S")
+        log(f"[wytrap {stamp} +{elapsed:6.1f}s] {msg}")
+    return _log
+
+
+def _fmt_eta(seconds: float) -> str:
+    if seconds < 60:
+        return f"{seconds:4.1f}s"
+    if seconds < 3600:
+        return f"{int(seconds // 60)}m{int(seconds % 60):02d}s"
+    return f"{int(seconds // 3600)}h{int((seconds % 3600) // 60):02d}m"
 
 
 def _iter_images(folder: Path, recursive: bool) -> Iterable[Path]:
@@ -95,18 +119,46 @@ def process_folder(input_dir: str | Path,
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    species_list = load_species(species) if isinstance(species, str) else list(species)
-    log(f"[wytrap] {len(species_list)} species in classifier list")
-    log(f"[wytrap] loading detector (device={device}, threshold={det_threshold})")
-    detector = Detector(device=device, det_threshold=det_threshold)
-    log(f"[wytrap] loading classifier (BioCLIP-2, topk={cls_topk})")
-    classifier = Classifier(species=species_list, topk=cls_topk)
-
-    images = list(_iter_images(input_dir, recursive))
-    log(f"[wytrap] {len(images)} images under {input_dir}")
-
-    n_done = n_skipped = n_failed = 0
     t_start = time.time()
+    plog = _make_logger(log, t_start)
+
+    species_list = load_species(species) if isinstance(species, str) else list(species)
+
+    plog("Initializing wytrap pipeline", banner=True)
+    plog(f"input dir         : {input_dir}")
+    plog(f"output dir        : {output_dir}")
+    plog(f"species list      : {len(species_list)} names "
+         f"({species if isinstance(species, str) else 'custom sequence'})")
+    plog(f"det threshold     : {det_threshold}")
+    plog(f"cls topk          : {cls_topk}")
+    plog(f"device requested  : {device}")
+    plog(f"recursive / resume: {recursive} / {resume}")
+    if jsonl_path:
+        plog(f"jsonl aggregate   : {jsonl_path}")
+
+    plog("Loading MegaDetector v6", banner=True)
+    detector = Detector(device=device, det_threshold=det_threshold)
+    plog(f"detector ready (device resolved to: {detector.device}, "
+         f"keep_labels={sorted(detector.keep_labels)})")
+
+    plog("Loading BioCLIP-2 classifier", banner=True)
+    classifier = Classifier(species=species_list, topk=cls_topk)
+    plog(f"classifier ready ({len(classifier.species)} text embeddings cached)")
+
+    plog("Scanning input folder", banner=True)
+    images = list(_iter_images(input_dir, recursive))
+    plog(f"found {len(images)} image(s) (extensions: {sorted(IMAGE_EXTS)})")
+    if not images:
+        plog("No images to process. Exiting.")
+        return {"processed": 0, "skipped": 0, "failed": 0, "elapsed_seconds": 0.0,
+                "label_counts": {}}
+
+    plog("Processing images", banner=True)
+    n_done = n_skipped = n_failed = 0
+    n_detections_total = 0
+    label_counts: Counter[str] = Counter()
+    t_loop = time.time()
+
     for i, image_path in enumerate(images, 1):
         out_path = output_path_for(image_path, output_dir, input_root=input_dir)
         if resume and out_path.exists():
@@ -119,9 +171,24 @@ def process_folder(input_dir: str | Path,
             if jsonl_path:
                 append_jsonl(record, jsonl_path)
             n_done += 1
+            n_detections_total += len(record.detections)
             dt = time.time() - t0
-            log(f"[wytrap] {i}/{len(images)} {image_path.name} "
-                f"({len(record.detections)} det, {dt:.2f}s)")
+
+            # Build a one-line preview of what we found.
+            if record.detections:
+                # Most-confident detection's label + top species.
+                top = max(record.detections, key=lambda d: d.det_score)
+                preview = (f"{top.label} ({top.cls_score:.2f}); "
+                           f"{len(record.detections)} box(es)")
+                for d in record.detections:
+                    label_counts[d.label] += 1
+            else:
+                preview = "no detections"
+
+            avg = (time.time() - t_loop) / max(n_done, 1)
+            remaining = (len(images) - i) * avg
+            plog(f"{i:>4}/{len(images)} {image_path.name:<40} "
+                 f"| {dt:5.2f}s | {preview} | ETA {_fmt_eta(remaining)}")
         except Exception as e:
             n_failed += 1
             err_record = ImageRecord(
@@ -131,13 +198,31 @@ def process_folder(input_dir: str | Path,
             )
             save_record(err_record, out_path)
             print(f"[wytrap] FAILED {image_path}: {e}", file=sys.stderr)
+            plog(f"{i:>4}/{len(images)} {image_path.name:<40} | FAILED: {e}")
 
     elapsed = time.time() - t_start
-    log(f"[wytrap] done: {n_done} processed, {n_skipped} skipped, "
-        f"{n_failed} failed in {elapsed:.1f}s")
+    proc_elapsed = time.time() - t_loop
+    throughput = (n_done / proc_elapsed) if proc_elapsed > 0 and n_done else 0.0
+
+    plog("Run complete", banner=True)
+    plog(f"processed         : {n_done}")
+    plog(f"skipped (resume)  : {n_skipped}")
+    plog(f"failed            : {n_failed}")
+    plog(f"total detections  : {n_detections_total}")
+    plog(f"throughput        : {throughput:.2f} img/s "
+         f"({(1.0/throughput):.2f}s/img)" if throughput else "throughput        : n/a")
+    plog(f"wall time         : {_fmt_eta(elapsed)} "
+         f"(processing {_fmt_eta(proc_elapsed)})")
+
+    if label_counts:
+        plog("top labels found  :")
+        for name, count in label_counts.most_common(10):
+            plog(f"  {count:>5}  {name}")
+
     return {
         "processed": n_done,
         "skipped": n_skipped,
         "failed": n_failed,
         "elapsed_seconds": elapsed,
+        "label_counts": dict(label_counts),
     }
