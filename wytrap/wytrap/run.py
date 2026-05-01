@@ -155,8 +155,9 @@ def process_folder(input_dir: str | Path,
              f"{cache_info['cache_dir']} on first use")
     else:
         plog("weights source    : unknown (huggingface_hub probe failed)")
-    classifier = Classifier(species=species_list, topk=cls_topk)
-    plog(f"classifier ready ({len(classifier.species)} text embeddings cached)")
+    classifier = Classifier(species=species_list, topk=cls_topk, device=device)
+    plog(f"classifier ready on {classifier.device} "
+         f"({len(classifier.species)} text embeddings cached)")
 
     plog("Scanning input folder", banner=True)
     images = list(_iter_images(input_dir, recursive))

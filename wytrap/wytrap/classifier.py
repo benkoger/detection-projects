@@ -59,12 +59,24 @@ class Classifier:
     Holds the species list and cached text embeddings; classifies PIL crops.
     """
 
-    def __init__(self, species: Sequence[str], topk: int = 5):
+    def __init__(self, species: Sequence[str], topk: int = 5,
+                 device: str = "auto"):
         from bioclip.predict import CustomLabelsClassifier
 
         self.species = list(species)
         self.topk = topk
-        self._classifier = CustomLabelsClassifier(self.species)
+        self.device = self._resolve_device(device)
+        self._classifier = CustomLabelsClassifier(self.species, device=self.device)
+
+    @staticmethod
+    def _resolve_device(device: str) -> str:
+        if device != "auto":
+            return device
+        try:
+            import torch
+            return "cuda" if torch.cuda.is_available() else "cpu"
+        except ImportError:
+            return "cpu"
 
     def classify(self, crop: Image.Image) -> Classification:
         return self.classify_batch([crop])[0]
