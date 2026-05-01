@@ -1,5 +1,6 @@
 """MegaDetector v6 wrapper (class-agnostic animal localizer)."""
 
+from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import Iterable
 
@@ -28,14 +29,71 @@ class Detector:
     def __init__(self, device: str = "auto", det_threshold: float = 0.2,
                  keep_labels: tuple[str, ...] = ("animal",),
                  version: str = DEFAULT_VERSION):
+        self._allowlist_ultralytics_globals()
         from PytorchWildlife.models import detection as pw_detection
 
         self.device = self._resolve_device(device)
         self.det_threshold = det_threshold
         self.keep_labels = set(keep_labels)
-        self._model = pw_detection.MegaDetectorV6(
-            device=self.device, version=version,
-        )
+        with self._weights_only_false():
+            self._model = pw_detection.MegaDetectorV6(
+                device=self.device, version=version,
+            )
+
+    @staticmethod
+    def _allowlist_ultralytics_globals() -> None:
+        # PyTorch 2.6 made torch.load default to weights_only=True, which
+        # rejects the pickled ultralytics classes inside MegaDetector .pt
+        # checkpoints. Ultralytics' own torch_load patch tries to set
+        # weights_only=False but doesn't always take effect (e.g. on torch
+        # 2.11). Whitelisting the relevant classes makes the safe path work.
+        import torch
+
+        try:
+            from ultralytics.nn.tasks import DetectionModel
+            from ultralytics.nn.modules import (
+                Conv, C2f, SPPF, Detect, DFL, Bottleneck, C3, C2,
+            )
+        except Exception:
+            return
+
+        safe = [DetectionModel, Conv, C2f, SPPF, Detect, DFL, Bottleneck, C3, C2]
+        # Pull anything else ultralytics expects to round-trip; ignore
+        # missing names (different ultralytics versions ship slightly
+        # different module sets).
+        for name in ("Concat", "Upsample", "C2fAttn", "RepC3", "ELAN1",
+                     "AConv", "ADown", "RepNCSPELAN4", "SPPELAN", "Silence"):
+            try:
+                mod = __import__("ultralytics.nn.modules", fromlist=[name])
+                safe.append(getattr(mod, name))
+            except (ImportError, AttributeError):
+                pass
+
+        try:
+            torch.serialization.add_safe_globals(safe)
+        except Exception:
+            pass
+
+    @staticmethod
+    @contextmanager
+    def _weights_only_false():
+        # Force torch.load default to weights_only=False while inside this
+        # block. Ultralytics' own monkeypatch tries to do this but isn't
+        # taking effect on torch 2.11. We trust the cached MegaDetector
+        # checkpoint, so this is safe in our context.
+        import torch
+
+        original = torch.load
+
+        def patched(*args, **kwargs):
+            kwargs.setdefault("weights_only", False)
+            return original(*args, **kwargs)
+
+        torch.load = patched
+        try:
+            yield
+        finally:
+            torch.load = original
 
     @staticmethod
     def _resolve_device(device: str) -> str:
