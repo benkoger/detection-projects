@@ -13,6 +13,7 @@ dependencies = [
     "albumentations==2.0.5",
     "imutils==0.5.4",
     "labelbox==3.75.0",
+    "matplotlib>=3.10.9",
     "numpy==2.2.*",
     "pandas==2.2.2",
     "pillow==10.3.0",
