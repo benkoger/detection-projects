@@ -29,7 +29,7 @@ export TORCH_HOME="${TORCH_HOME:-/project/wildimageproc/software/models/torch}"
 VENV="${VENV:-/project/wildimageproc/software/.wildimageproc-venv}"
 source "$VENV/bin/activate"
 
-cd "$(dirname "$0")/.."
+cd "$SLURM_SUBMIT_DIR"
 
 # Use the SLURM job ID as the run folder name so eval can find it via $RUN_ID.
 python scripts/train_model.py \

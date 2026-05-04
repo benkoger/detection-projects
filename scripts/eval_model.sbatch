@@ -28,7 +28,7 @@ export TORCH_HOME="${TORCH_HOME:-/project/wildimageproc/software/models/torch}"
 VENV="${VENV:-/project/wildimageproc/software/.wildimageproc-venv}"
 source "$VENV/bin/activate"
 
-cd "$(dirname "$0")/.."
+cd "$SLURM_SUBMIT_DIR"
 
 : "${RUN_ID:?RUN_ID must be set (the run folder name = the train job id)}"
 
