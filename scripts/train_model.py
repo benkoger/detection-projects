@@ -149,6 +149,8 @@ def main() -> int:
         rebalance_train_val(
             train_coco, val_coco,
             fraction_val=0.25,
+            min_val_per_class=20,
+            min_train_per_class=20,
             train_out=train_json_path,
             val_out=val_json_path,
         )
@@ -218,6 +220,7 @@ def main() -> int:
             "num_epochs": args.num_epochs,
             "run_folder": str(run_folder),
             "epochs_per_val": 1,
+            "use_weighted_sampler": True,
             "optimizer": {
                 "name": "SGD",
                 "lr": 0.005,

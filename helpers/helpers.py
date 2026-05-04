@@ -1,5 +1,6 @@
 import copy
 import json
+import math
 import os
 import random
 import re
@@ -124,9 +125,11 @@ def remove_images_by_pattern(coco, pattern=YNP_A_PATTERN, out_file=None):
 
 
 def rebalance_train_val(train_coco, val_coco, fraction_val=0.25, seed=0,
-                        train_out=None, val_out=None):
+                        train_out=None, val_out=None,
+                        min_val_per_class=20, min_train_per_class=20):
     """Recombine train+val and resplit, hitting fraction_val while ensuring
-    each category has at least one image in both splits.
+    each category has min_val_per_class images in val and min_train_per_class
+    in train (capped at availability).
 
     Args:
         train_coco, val_coco: either paths to coco json files or loaded dicts.
@@ -134,6 +137,10 @@ def rebalance_train_val(train_coco, val_coco, fraction_val=0.25, seed=0,
         fraction_val: target fraction of images that should land in val.
         seed: RNG seed for the shuffle.
         train_out, val_out: if given, save resulting splits to these paths.
+        min_val_per_class: aim for at least this many val images per category.
+            If a category has fewer total images, val gets ceil(C * fraction_val)
+            (capped at C-1 so train always keeps ≥1).
+        min_train_per_class: same, for train.
 
     Returns (new_train_coco, new_val_coco).
     """
@@ -177,27 +184,50 @@ def rebalance_train_val(train_coco, val_coco, fraction_val=0.25, seed=0,
         for c in cs:
             cat_image_count[c] += 1
 
-    # Seed both splits with one image per category, starting with the rarest
-    # categories so we don't accidentally lock them all into one split.
+    # Per-class targets: aim for min_val_per_class but never starve train.
+    # If C is small, fall back to ceil(C * fraction_val), with at least 1
+    # in each split when C >= 2.
+    val_target_per_cat = {}
+    train_target_per_cat = {}
+    for c in cat_ids:
+        C = cat_image_count[c]
+        if C < 2:
+            val_target_per_cat[c] = C
+            train_target_per_cat[c] = 0
+            continue
+        v_target = min(max(min_val_per_class, math.ceil(C * fraction_val)), C - 1)
+        v_target = max(v_target, 1)
+        val_target_per_cat[c] = v_target
+        train_target_per_cat[c] = max(min(min_train_per_class, C - v_target), 1)
+
+    # Seed val first (rarest classes first) so rare classes get full val coverage
+    # before commoner classes consume the remaining budget.
+    val_have = {c: 0 for c in cat_ids}
     for cat in sorted(cat_ids, key=lambda c: cat_image_count[c]):
-        if cat_image_count[cat] < 2:
-            print(f"Warning: category id {cat} has only "
-                  f"{cat_image_count[cat]} image(s); cannot guarantee both splits.")
-        val_has = any(cat in img_cats[i] for i in val_ids)
-        train_has = any(cat in img_cats[i] for i in train_ids)
         for im in images:
-            if val_has and train_has:
+            if val_have[cat] >= val_target_per_cat[cat]:
                 break
             if im["id"] in val_ids or im["id"] in train_ids:
                 continue
             if cat not in img_cats[im["id"]]:
                 continue
-            if not val_has:
-                val_ids.add(im["id"])
-                val_has = True
-            elif not train_has:
-                train_ids.add(im["id"])
-                train_has = True
+            val_ids.add(im["id"])
+            for c in img_cats[im["id"]]:
+                val_have[c] = val_have.get(c, 0) + 1
+
+    # Then seed train mins (rarest first) from what's left.
+    train_have = {c: 0 for c in cat_ids}
+    for cat in sorted(cat_ids, key=lambda c: cat_image_count[c]):
+        for im in images:
+            if train_have[cat] >= train_target_per_cat[cat]:
+                break
+            if im["id"] in val_ids or im["id"] in train_ids:
+                continue
+            if cat not in img_cats[im["id"]]:
+                continue
+            train_ids.add(im["id"])
+            for c in img_cats[im["id"]]:
+                train_have[c] = train_have.get(c, 0) + 1
 
     # Distribute remaining images to hit the target val fraction.
     for im in images:
@@ -207,6 +237,21 @@ def rebalance_train_val(train_coco, val_coco, fraction_val=0.25, seed=0,
             val_ids.add(im["id"])
         else:
             train_ids.add(im["id"])
+
+    # Report final per-class coverage so it's obvious if any class is starved.
+    final_val = {c: 0 for c in cat_ids}
+    final_train = {c: 0 for c in cat_ids}
+    for i in val_ids:
+        for c in img_cats[i]:
+            final_val[c] = final_val.get(c, 0) + 1
+    for i in train_ids:
+        for c in img_cats[i]:
+            final_train[c] = final_train.get(c, 0) + 1
+    cat_name = {cat["id"]: cat["name"] for cat in train_coco["categories"]}
+    print("Per-class coverage (train / val):")
+    for c in sorted(cat_ids, key=lambda c: cat_image_count[c]):
+        print(f"  {cat_name.get(c, c):20s}  "
+              f"{final_train[c]:5d} / {final_val[c]:5d}  (total {cat_image_count[c]})")
 
     def build(template, kept_ids):
         new = {k: copy.deepcopy(v) for k, v in template.items()

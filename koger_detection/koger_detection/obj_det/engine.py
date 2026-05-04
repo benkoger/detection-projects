@@ -407,9 +407,38 @@ def train(cfg, model, optimizer, lr_scheduler, transform_train,
                                  transform=transform_val)
 
 
+    # Optional weighted sampler to combat long-tail class imbalance.
+    # Per-image weight = max(1/freq) over the categories present in that image,
+    # so the rarest class in the image dominates. Images with no annotations
+    # get weight 0 (excluded).
+    train_sampler = None
+    if cfg_t.get('use_weighted_sampler', False):
+        coco_obj = dataset.coco
+        cat_count = {}
+        for img_id in dataset.ids:
+            ann_ids = coco_obj.getAnnIds(imgIds=img_id)
+            cats = {a['category_id'] for a in coco_obj.loadAnns(ann_ids)}
+            for c in cats:
+                cat_count[c] = cat_count.get(c, 0) + 1
+        weights = []
+        for img_id in dataset.ids:
+            ann_ids = coco_obj.getAnnIds(imgIds=img_id)
+            cats = {a['category_id'] for a in coco_obj.loadAnns(ann_ids)}
+            if cats:
+                weights.append(max(1.0 / cat_count[c] for c in cats))
+            else:
+                weights.append(0.0)
+        train_sampler = torch.utils.data.WeightedRandomSampler(
+            weights=weights, num_samples=len(weights), replacement=True)
+        print(f"Using WeightedRandomSampler over {len(weights)} train images "
+              f"({len(cat_count)} classes, freq range "
+              f"{min(cat_count.values())}..{max(cat_count.values())}).")
+
     # define training and validation data loaders
     data_loader = torch.utils.data.DataLoader(
-        dataset, batch_size=cfg_t['batch_size'], shuffle=True, 
+        dataset, batch_size=cfg_t['batch_size'],
+        shuffle=(train_sampler is None),
+        sampler=train_sampler,
         num_workers=cfg_t['num_workers'], collate_fn=collate_fn,
         worker_init_fn=worker_init_fn)
 
