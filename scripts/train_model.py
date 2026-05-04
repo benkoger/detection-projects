@@ -162,8 +162,17 @@ def main() -> int:
     log.info("num_classes (incl. background): %d", num_classes)
 
     # ---------------- 3. Augmentations -----------------
-    bbox_params = A.BboxParams(format="pascal_voc",
-                               label_fields=["class_labels", "area"])
+    # min_area=4 drops boxes that get crushed to zero/near-zero pixels by
+    # RandomCrop/PadIfNeeded. Faster R-CNN asserts on degenerate boxes.
+    # min_visibility=0.05 drops boxes where <5% of the original box survives
+    # the crop, since those are mostly partial-animal artifacts the model
+    # can't learn from anyway.
+    train_bbox_params = A.BboxParams(format="pascal_voc",
+                                     label_fields=["class_labels", "area"],
+                                     min_area=4.0,
+                                     min_visibility=0.05)
+    val_bbox_params = A.BboxParams(format="pascal_voc",
+                                   label_fields=["class_labels", "area"])
     train_aug = A.Compose([
         A.ToFloat(max_value=255),
         A.HorizontalFlip(p=0.5),
@@ -171,17 +180,17 @@ def main() -> int:
         A.geometric.resize.RandomScale(0.2, interpolation=cv2.INTER_LINEAR, p=0.75),
         A.geometric.transforms.PadIfNeeded(min_height=1024, min_width=1024,
                                             border_mode=cv2.BORDER_CONSTANT,
-                                            value=0, p=1.0),
+                                            fill=0, p=1.0),
         A.crops.transforms.RandomCrop(1024, 1024, p=1.0),
         A.RandomBrightnessContrast(brightness_limit=0.3, contrast_limit=0.1,
                                    brightness_by_max=True, p=0.75),
         A.Blur(p=0.1),
         ToTensorV2(),
-    ], bbox_params=bbox_params)
+    ], bbox_params=train_bbox_params)
     val_aug = A.Compose([
         A.ToFloat(max_value=255),
         ToTensorV2(),
-    ], bbox_params=bbox_params)
+    ], bbox_params=val_bbox_params)
 
     # ---------------- 4. Cfg -----------------
     cfg = {
