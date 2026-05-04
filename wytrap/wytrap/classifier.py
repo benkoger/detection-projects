@@ -1,9 +1,11 @@
 """BioCLIP-2 zero-shot species classifier wrapper."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Sequence
 
 from PIL import Image
+
+from wytrap.species_lists import Species, load_species
 
 
 # pybioclip pulls BioCLIP-2 from this HuggingFace repo by default.
@@ -12,14 +14,7 @@ BIOCLIP2_PROBE_FILES = ("open_clip_model.safetensors", "open_clip_config.json")
 
 
 def bioclip_cache_status(repo_id: str = BIOCLIP2_REPO_ID) -> dict:
-    """Inspect the local HF cache to report whether BioCLIP-2 weights are present.
-
-    Returns a dict with keys:
-      - status: 'cached' | 'partial' | 'missing' | 'unknown'
-      - cache_dir: which HF cache directory was checked
-      - missing: list of probe filenames not found in the cache
-      - cached_paths: dict of probe_filename -> absolute local path (for hits)
-    """
+    """Inspect the local HF cache to report whether BioCLIP-2 weights are present."""
     try:
         from huggingface_hub import try_to_load_from_cache
         from huggingface_hub.constants import HF_HUB_CACHE
@@ -47,26 +42,45 @@ def bioclip_cache_status(repo_id: str = BIOCLIP2_REPO_ID) -> dict:
 
 
 @dataclass
-class Classification:
-    fine_label: str            # whatever BioCLIP returned (e.g. "coyote")
+class TopKEntry:
+    common: str
+    scientific: str
     score: float
-    topk: list[tuple[str, float]]
+
+    def to_dict(self) -> dict:
+        return {"common": self.common, "scientific": self.scientific,
+                "score": self.score}
+
+
+@dataclass
+class Classification:
+    fine_label: str            # common name of top-1 (back-compat)
+    scientific_label: str      # binomial of top-1 (what BioCLIP saw)
+    score: float
+    topk: list[TopKEntry] = field(default_factory=list)
 
 
 class Classifier:
     """Thin wrapper around pybioclip.CustomLabelsClassifier.
 
     Holds the species list and cached text embeddings; classifies PIL crops.
+    Accepts either Species dicts (preferred) or plain strings (legacy).
     """
 
-    def __init__(self, species: Sequence[str], topk: int = 5,
+    def __init__(self, species: Sequence, topk: int = 5,
                  device: str = "auto"):
         from bioclip.predict import CustomLabelsClassifier
 
-        self.species = list(species)
+        self.species: list[Species] = load_species(list(species))
         self.topk = topk
         self.device = self._resolve_device(device)
-        self._classifier = CustomLabelsClassifier(self.species, device=self.device)
+
+        # BioCLIP sees scientific (binomial) names — they're what the model
+        # was trained on and consistently outperform common names on
+        # fine-grained taxonomy.
+        self._prompts = [s["scientific"] for s in self.species]
+        self._sci_to_common = {s["scientific"]: s["common"] for s in self.species}
+        self._classifier = CustomLabelsClassifier(self._prompts, device=self.device)
 
     @staticmethod
     def _resolve_device(device: str) -> str:
@@ -84,16 +98,12 @@ class Classifier:
     def classify_batch(self, crops: Sequence[Image.Image]) -> list[Classification]:
         if not crops:
             return []
-        # pybioclip groups predictions by input image when given a list.
-        # It returns a flat list of {classification, score, ...} sorted by
-        # score; for batched inputs each image's preds are contiguous.
         preds = self._classifier.predict(list(crops))
         return self._unpack(preds, len(crops))
 
     def _unpack(self, preds: list[dict], n_images: int) -> list[Classification]:
-        # pybioclip emits len(species) entries per image. Group and rank.
-        per_image = [[] for _ in range(n_images)]
-        n_species = len(self.species)
+        per_image: list[list[tuple[str, float]]] = [[] for _ in range(n_images)]
+        n_species = len(self._prompts)
         for idx, p in enumerate(preds):
             img_idx = idx // n_species
             if img_idx >= n_images:
@@ -104,6 +114,22 @@ class Classifier:
         for items in per_image:
             items.sort(key=lambda kv: kv[1], reverse=True)
             top = items[: self.topk]
-            fine, score = top[0] if top else ("", 0.0)
-            out.append(Classification(fine_label=fine, score=score, topk=top))
+            topk_entries = [
+                TopKEntry(common=self._sci_to_common.get(sci, sci),
+                          scientific=sci,
+                          score=score)
+                for sci, score in top
+            ]
+            if topk_entries:
+                head = topk_entries[0]
+                out.append(Classification(
+                    fine_label=head.common,
+                    scientific_label=head.scientific,
+                    score=head.score,
+                    topk=topk_entries,
+                ))
+            else:
+                out.append(Classification(
+                    fine_label="", scientific_label="", score=0.0, topk=[]
+                ))
         return out

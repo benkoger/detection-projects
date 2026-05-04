@@ -11,9 +11,12 @@ class DetectionRecord:
     det_score: float               # MegaDetector confidence
     det_label: str                 # "animal" / "person" / "vehicle"
     label: str                     # canonical/merged class (== fine_label by default)
-    fine_label: str                # raw BioCLIP top-1
+    fine_label: str                # BioCLIP top-1 common name
+    scientific_label: str          # BioCLIP top-1 scientific name (the prompt)
     cls_score: float               # BioCLIP top-1 score
-    topk: list[list]               # [[name, score], ...]
+    topk: list[dict]               # [{"common": ..., "scientific": ..., "score": ...}, ...]
+    quality: str = "ok"            # "ok" | "edge" | "small" | "thin" | "skipped"
+    quality_reason: str = ""       # short detail when quality != "ok"
 
 
 @dataclass
@@ -41,7 +44,18 @@ def append_jsonl(record: ImageRecord, out_path: str | Path) -> None:
 def load_record(path: str | Path) -> ImageRecord:
     with open(path, "r") as f:
         d = json.load(f)
-    detections = [DetectionRecord(**det) for det in d.get("detections", [])]
+    detections = []
+    for det in d.get("detections", []):
+        # Be tolerant of older records that lack the new fields.
+        det.setdefault("scientific_label", det.get("fine_label", ""))
+        det.setdefault("quality", "ok")
+        det.setdefault("quality_reason", "")
+        # topk migrated from [[name, score], ...] to [{...}, ...].
+        topk = det.get("topk", [])
+        if topk and isinstance(topk[0], (list, tuple)):
+            det["topk"] = [{"common": name, "scientific": name, "score": score}
+                           for name, score in topk]
+        detections.append(DetectionRecord(**det))
     return ImageRecord(
         image_path=d["image_path"],
         image_size=d["image_size"],

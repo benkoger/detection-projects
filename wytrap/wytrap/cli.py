@@ -36,6 +36,19 @@ def _add_detect_parser(sub: argparse._SubParsersAction) -> None:
                    help="Skip images that already have an output JSON.")
     p.add_argument("--jsonl",
                    help="Optional path to also append all records to a single JSONL file.")
+    p.add_argument("--edge-margin-frac", type=float, default=0.01,
+                   help="Boxes within this fraction of any image side are "
+                        "tagged quality='edge' (default: 0.01 = 1%%).")
+    p.add_argument("--min-box-area-frac", type=float, default=0.005,
+                   help="Boxes smaller than this fraction of image area are "
+                        "tagged quality='small' (default: 0.005 = 0.5%%).")
+    p.add_argument("--max-aspect-ratio", type=float, default=5.0,
+                   help="Boxes with longer-side / shorter-side above this "
+                        "are tagged quality='thin' (default: 5.0).")
+    p.add_argument("--skip-classification-when-bad", action="store_true",
+                   help="Skip BioCLIP entirely on boxes whose quality is not "
+                        "'ok'. Saves compute when you only care about clean "
+                        "detections.")
 
 
 def _add_species_parser(sub: argparse._SubParsersAction) -> None:
@@ -64,6 +77,10 @@ def _cmd_detect(args: argparse.Namespace) -> int:
         recursive=args.recursive,
         resume=args.resume,
         jsonl_path=args.jsonl,
+        edge_margin_frac=args.edge_margin_frac,
+        min_box_area_frac=args.min_box_area_frac,
+        max_aspect_ratio=args.max_aspect_ratio,
+        skip_classification_when_bad=args.skip_classification_when_bad,
     )
     return 0 if summary["failed"] == 0 else 1
 
@@ -73,8 +90,11 @@ def _cmd_species(args: argparse.Namespace) -> int:
     if args.count_only:
         print(len(species))
     else:
-        for name in species:
-            print(name)
+        for s in species:
+            if s["scientific"] == s["common"]:
+                print(s["common"])
+            else:
+                print(f"{s['scientific']} | {s['common']}")
     return 0
 
 
