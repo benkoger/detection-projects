@@ -51,8 +51,15 @@ def _fmt_eta(seconds: float) -> str:
 def _iter_images(folder: Path, recursive: bool) -> Iterable[Path]:
     pattern = "**/*" if recursive else "*"
     for p in sorted(folder.glob(pattern)):
-        if p.is_file() and p.suffix.lower() in IMAGE_EXTS:
-            yield p
+        if not p.is_file():
+            continue
+        if p.suffix.lower() not in IMAGE_EXTS:
+            continue
+        # Skip macOS AppleDouble metadata stubs (e.g. ._IMG_0001.JPG) and
+        # other hidden dotfiles that PIL cannot decode.
+        if p.name.startswith("."):
+            continue
+        yield p
 
 
 def _crop(image: Image.Image, box: tuple[int, int, int, int]) -> Image.Image:
