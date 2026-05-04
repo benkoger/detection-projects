@@ -210,8 +210,8 @@ YNP_TESTBED: list[Species] = [
     _sp("Alces alces", "moose"),
     _sp("Odocoileus hemionus", "Deer"),    # collapsed Deer class (mule deer as exemplar)
     _sp("Antilocapra americana", "pronghorn"),
-    _sp("bird", "bird"),
-    _sp("rodent", "rodent"),
+    _sp("Aves", "bird"),
+    _sp("Rodentia", "rodent"),
 ]
 
 

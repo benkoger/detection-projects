@@ -31,6 +31,9 @@ mkdir -p logs
 # Shared model cache so each researcher doesn't re-download MegaDetector + BioCLIP weights.
 export HF_HOME="${HF_HOME:-/project/wildimageproc/software/models}"
 export TORCH_HOME="${TORCH_HOME:-/project/wildimageproc/software/models/torch}"
+export INPUT_DIR="/project/wildimageproc/software/annotations/YNP-BisonGraze/images"
+export OUTPUT_DIR="/project/wildimageproc/omartin9/detection-projects/wytrap/output-pipeline"
+export SPECIES="ynp_testbed"
 
 VENV="${VENV:-/project/wildimageproc/software/.wildimageproc-venv}"
 source "$VENV/bin/activate"
