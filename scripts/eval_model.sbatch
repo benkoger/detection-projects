@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --job-name=cameratrap-eval
-#SBATCH --account-name=wildimageproc
+#SBATCH --account=wildimageproc
 #SBATCH --partition=beartooth-gpu
 #SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=4
