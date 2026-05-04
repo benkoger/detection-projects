@@ -49,6 +49,10 @@ def _add_detect_parser(sub: argparse._SubParsersAction) -> None:
                    help="Skip BioCLIP entirely on boxes whose quality is not "
                         "'ok'. Saves compute when you only care about clean "
                         "detections.")
+    p.add_argument("--log-file",
+                   help="Persistent log file. Default: <output>/wytrap.log. "
+                        "Logs are appended in addition to stdout, so SLURM "
+                        ".out and the run folder both keep a copy.")
 
 
 def _add_species_parser(sub: argparse._SubParsersAction) -> None:
@@ -81,6 +85,7 @@ def _cmd_detect(args: argparse.Namespace) -> int:
         min_box_area_frac=args.min_box_area_frac,
         max_aspect_ratio=args.max_aspect_ratio,
         skip_classification_when_bad=args.skip_classification_when_bad,
+        log_file=args.log_file,
     )
     return 0 if summary["failed"] == 0 else 1
 

@@ -6,6 +6,7 @@ from collections import Counter
 from datetime import datetime
 from pathlib import Path
 from typing import Iterable, Sequence
+import os
 import sys
 import time
 
@@ -26,18 +27,48 @@ from wytrap.species_lists import load_species
 IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".tif", ".tiff", ".bmp"}
 
 
-def _make_logger(log: callable, t_start: float):
+def _make_logger(log: callable, t_start: float,
+                 log_file_handle=None):
+    """Return a `plog(msg, banner=False)` that writes to `log` and (if given)
+    also appends to a file. Each line is timestamped + has elapsed seconds."""
+    def _emit(line: str) -> None:
+        log(line)
+        if log_file_handle is not None:
+            log_file_handle.write(line + "\n")
+            log_file_handle.flush()
+
     def _log(msg: str = "", *, banner: bool = False) -> None:
         if banner:
             bar = "=" * 60
-            log(bar)
-            log(f"  {msg}")
-            log(bar)
+            stamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            _emit(bar)
+            _emit(f"  [{stamp}] {msg}")
+            _emit(bar)
             return
         elapsed = time.time() - t_start
         stamp = datetime.now().strftime("%H:%M:%S")
-        log(f"[wytrap {stamp} +{elapsed:6.1f}s] {msg}")
+        _emit(f"[wytrap {stamp} +{elapsed:7.1f}s] {msg}")
     return _log
+
+
+def _log_environment(plog) -> None:
+    """Print hostname / SLURM / GPU context up front so .out files are useful
+    when a job fails 10 hours in and you need to know which node it ran on."""
+    plog(f"hostname          : {os.uname().nodename}")
+    plog(f"pid               : {os.getpid()}")
+    plog(f"SLURM_JOB_ID      : {os.environ.get('SLURM_JOB_ID', '<not slurm>')}")
+    plog(f"SLURM_NODELIST    : {os.environ.get('SLURM_NODELIST', '<n/a>')}")
+    plog(f"HF_HOME           : {os.environ.get('HF_HOME', '<unset>')}")
+    plog(f"TORCH_HOME        : {os.environ.get('TORCH_HOME', '<unset>')}")
+    try:
+        import torch
+        plog(f"torch version     : {torch.__version__}")
+        plog(f"CUDA available    : {torch.cuda.is_available()}")
+        if torch.cuda.is_available():
+            plog(f"GPU               : {torch.cuda.get_device_name(0)}")
+            plog(f"CUDA version      : {torch.version.cuda}")
+    except ImportError:
+        plog("torch             : not importable")
 
 
 def _fmt_eta(seconds: float) -> str:
@@ -216,18 +247,29 @@ def process_folder(input_dir: str | Path,
                    min_box_area_frac: float = 0.005,
                    max_aspect_ratio: float = 5.0,
                    skip_classification_when_bad: bool = False,
-                   log: callable = print) -> dict:
+                   log: callable = print,
+                   log_file: str | Path | None = None) -> dict:
     """Run the full pipeline over a folder of images. Returns summary dict."""
     input_dir = Path(input_dir)
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
+    # Default the persistent log file to live next to the JSON outputs so
+    # the run survives even after the SLURM .out file is gone.
+    if log_file is None:
+        log_file = output_dir / "wytrap.log"
+    log_file = Path(log_file)
+    log_file.parent.mkdir(parents=True, exist_ok=True)
+    log_fh = open(log_file, "a")
+
     t_start = time.time()
-    plog = _make_logger(log, t_start)
+    plog = _make_logger(log, t_start, log_file_handle=log_fh)
 
     species_list = load_species(species) if isinstance(species, str) else list(species)
 
     plog("Initializing wytrap pipeline", banner=True)
+    _log_environment(plog)
+    plog(f"log file          : {log_file}")
     plog(f"input dir         : {input_dir}")
     plog(f"output dir        : {output_dir}")
     plog(f"species list      : {len(species_list)} names "
@@ -357,6 +399,7 @@ def process_folder(input_dir: str | Path,
         for name, count in label_counts.most_common(10):
             plog(f"  {count:>5}  {name}")
 
+    log_fh.close()
     return {
         "processed": n_done,
         "skipped": n_skipped,
@@ -364,4 +407,5 @@ def process_folder(input_dir: str | Path,
         "elapsed_seconds": elapsed,
         "label_counts": dict(label_counts),
         "quality_counts": dict(quality_counts),
+        "log_file": str(log_file),
     }
