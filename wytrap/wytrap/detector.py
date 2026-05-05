@@ -30,6 +30,7 @@ class Detector:
                  keep_labels: tuple[str, ...] = ("animal",),
                  version: str = DEFAULT_VERSION):
         self._allowlist_ultralytics_globals()
+        self._silence_ultralytics()
         from PytorchWildlife.models import detection as pw_detection
 
         self.device = self._resolve_device(device)
@@ -39,6 +40,21 @@ class Detector:
             self._model = pw_detection.MegaDetectorV6(
                 device=self.device, version=version,
             )
+
+    @staticmethod
+    def _silence_ultralytics() -> None:
+        # Tiled inference makes ~20 detector calls per image. Ultralytics'
+        # default per-call "0: 1280x1280 1 animal, 24.9ms" log line then
+        # drowns out our own progress lines. Bump its logger to WARNING and
+        # set the global "verbose=False" env var for good measure.
+        import os
+        os.environ["YOLO_VERBOSE"] = "False"
+        try:
+            from ultralytics.utils import LOGGER
+            import logging
+            LOGGER.setLevel(logging.WARNING)
+        except Exception:
+            pass
 
     @staticmethod
     def _allowlist_ultralytics_globals() -> None:
