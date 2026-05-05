@@ -90,6 +90,8 @@ YNP_EVAL_MERGES = {
     "American woodcock": "bird",
     "house finch": "bird",
     "black-capped chickadee": "bird",
+    "western meadowlark": "bird",
+    "european starling": "bird"
 }
 
 

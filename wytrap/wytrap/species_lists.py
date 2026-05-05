@@ -262,6 +262,8 @@ YNP_TESTBED: list[Species] = [
     _sp("Scolopax minor", "American woodcock"),
     _sp("Haemorhous mexicanus", "house finch"),
     _sp("Poecile atricapillus", "black-capped chickadee"),
+    _sp("Sturnella neglecta", "western meadowlark"),
+    _sp("Sturnus vulgaris", "european starling")
 
     # Singleton categories
     _sp("Taxidea taxus", "badger"),
