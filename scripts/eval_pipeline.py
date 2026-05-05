@@ -141,6 +141,10 @@ def load_pred(pred_dir: Path,
         # skip eval/metrics.json from prior runs
         if jf.parent.name == "eval":
             continue
+        # skip macOS AppleDouble stubs (._FILENAME) — they look like JSON by
+        # extension but are 4KB binary blobs.
+        if jf.name.startswith("."):
+            continue
         try:
             rec = load_record(jf)
         except Exception as e:
