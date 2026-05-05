@@ -69,6 +69,15 @@ def _add_detect_parser(sub: argparse._SubParsersAction) -> None:
     p.add_argument("--tile-overlap", type=float, default=0.2,
                    help="Fractional overlap between adjacent tiles "
                         "(default: 0.2 = 20%%).")
+    p.add_argument("--no-multiscale", action="store_true",
+                   help="Disable multi-scale BioCLIP classification. By "
+                        "default each detection is classified at three "
+                        "crop scales (tight / padded / whole-image) and "
+                        "the highest-scoring scale wins — improves "
+                        "extreme close-ups and far-shots.")
+    p.add_argument("--multiscale-pad", type=float, default=2.0,
+                   help="Padded-crop expansion factor for multi-scale "
+                        "(default: 2.0 = 2x the box, clamped).")
 
 
 def _add_species_parser(sub: argparse._SubParsersAction) -> None:
@@ -104,6 +113,8 @@ def _cmd_detect(args: argparse.Namespace) -> int:
         tile=not args.no_tile,
         tile_size=args.tile_size,
         tile_overlap=args.tile_overlap,
+        multiscale=not args.no_multiscale,
+        multiscale_pad=args.multiscale_pad,
         log_file=args.log_file,
     )
     return 0 if summary["failed"] == 0 else 1

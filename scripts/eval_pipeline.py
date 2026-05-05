@@ -75,6 +75,11 @@ def parse_args() -> argparse.Namespace:
                         "is the predator/deer-only map used by FRCNN training.")
     p.add_argument("--top-ks", default="1,3,5",
                    help="Comma-separated k values for top-k accuracy (default '1,3,5').")
+    p.add_argument("--cls-min-confidence", type=float, default=0.30,
+                   help="Below this BioCLIP top-1 score, a matched detection "
+                        "counts as 'abstained' rather than committed. "
+                        "Classification metrics report only on committed; "
+                        "abstention is its own line item. Default 0.30.")
     return p.parse_args()
 
 
@@ -136,10 +141,19 @@ def load_gt(gt_path: Path,
 def load_pred(pred_dir: Path,
               gt_files: set[str],
               merges: dict[str, str],
-              quality_filter: set[str] | None) -> tuple[dict[str, list], Counter]:
-    """Returns ({file_basename: [(xyxy, merged_top1, [merged_topk_labels])]}, quality_counts)."""
+              quality_filter: set[str] | None
+              ) -> tuple[dict[str, list], Counter, Counter]:
+    """Load wytrap per-image JSONs.
+
+    Returns:
+        pred_by_file: {file_basename: [(xyxy, merged_top1, [merged_topk_labels],
+                                         cls_score, scale)]}
+        quality_counts: Counter of quality field values across all preds.
+        scale_counts:   Counter of scale field values across all preds.
+    """
     pred_by_file: dict[str, list] = defaultdict(list)
     quality_counts: Counter[str] = Counter()
+    scale_counts:   Counter[str] = Counter()
     n_records_seen = 0
     n_records_matched = 0
     for jf in pred_dir.rglob("*.json"):
@@ -164,32 +178,58 @@ def load_pred(pred_dir: Path,
         n_records_matched += 1
         for det in rec.detections:
             quality_counts[det.quality] += 1
+            scale_counts[det.scale] += 1
             if quality_filter is not None and det.quality not in quality_filter:
                 continue
             top1 = merges.get(det.label, det.label)
             topk = [merges.get(t.get("common", ""), t.get("common", ""))
                     for t in (det.topk or [])]
-            pred_by_file[fname].append((det.box_xyxy, top1, topk))
+            pred_by_file[fname].append((det.box_xyxy, top1, topk,
+                                        float(det.cls_score), det.scale))
     log.info("scanned %d pipeline JSONs, matched %d to GT filenames",
              n_records_seen, n_records_matched)
-    return pred_by_file, quality_counts
+    return pred_by_file, quality_counts, scale_counts
 
 
 def evaluate(gt_by_file: dict[str, list],
              pred_by_file: dict[str, list],
              iou_thresh: float,
-             top_ks: list[int]) -> dict:
+             top_ks: list[int],
+             cls_min_confidence: float = 0.30) -> dict:
+    """Evaluate predictions vs GT.
+
+    Detection P/R is computed over all matched/unmatched boxes regardless of
+    classification confidence. Classification metrics (top-1/3/5 accuracy,
+    confusion matrix) are computed only on **committed** matches:
+    cls_score >= cls_min_confidence. Matched-but-abstained predictions are
+    counted in `abstained` for separate reporting.
+
+    Each `pred_by_file` entry is a 5-tuple
+    (xyxy_box, top1_label, topk_labels, cls_score, scale).
+    """
     tp = fp = fn = 0
     matched = 0
+    committed = 0
     correct_at = {k: 0 for k in top_ks}
     confusion: dict[str, Counter] = defaultdict(Counter)
     in_topk_only: dict[str, Counter] = defaultdict(Counter)
+    # Per-class abstention tracking (matched detections only).
+    matched_per_class: Counter[str] = Counter()
+    abstained_per_class: Counter[str] = Counter()
+    # Per-scale tracking (committed only).
+    scale_n: Counter[str] = Counter()
+    scale_correct: Counter[str] = Counter()
+    # Detections matched-but-abstained where the GT label was nonetheless
+    # in the top-k — these are recoverable if the threshold is lowered.
+    abstained_with_gt_in_topk = 0
+    # Raw matched-detection records for the threshold sweep.
+    matched_records: list[tuple[float, str, str, list, str]] = []
     max_k = max(top_ks)
 
     for fname, gts in gt_by_file.items():
         preds = pred_by_file.get(fname, [])
         gt_used = [False] * len(gts)
-        for pbox, plabel, ptopk in preds:
+        for pbox, plabel, ptopk, cls_score, scale in preds:
             best_iou, best_j = 0.0, -1
             for j, (gbox, _) in enumerate(gts):
                 if gt_used[j]:
@@ -202,32 +242,90 @@ def evaluate(gt_by_file: dict[str, list],
                 gt_used[best_j] = True
                 glabel = gts[best_j][1]
                 matched += 1
-                confusion[glabel][plabel] += 1
-                for k in top_ks:
-                    if glabel in ptopk[:k]:
-                        correct_at[k] += 1
-                if plabel != glabel and glabel in ptopk[:max_k]:
-                    in_topk_only[glabel][plabel] += 1
+                matched_per_class[glabel] += 1
+                matched_records.append((cls_score, plabel, glabel, ptopk, scale))
+                if cls_score >= cls_min_confidence:
+                    committed += 1
+                    confusion[glabel][plabel] += 1
+                    scale_n[scale] += 1
+                    if plabel == glabel:
+                        scale_correct[scale] += 1
+                    for k in top_ks:
+                        if glabel in ptopk[:k]:
+                            correct_at[k] += 1
+                    if plabel != glabel and glabel in ptopk[:max_k]:
+                        in_topk_only[glabel][plabel] += 1
+                else:
+                    abstained_per_class[glabel] += 1
+                    if glabel in ptopk[:max_k]:
+                        abstained_with_gt_in_topk += 1
             else:
                 fp += 1
         fn += sum(1 for u in gt_used if not u)
 
     precision = tp / (tp + fp) if (tp + fp) else 0.0
     recall = tp / (tp + fn) if (tp + fn) else 0.0
+    abstained = matched - committed
 
     metrics = {
-        "tp": tp, "fp": fp, "fn": fn, "matched": matched,
+        "tp": tp, "fp": fp, "fn": fn,
+        "matched": matched,
+        "committed": committed,
+        "abstained": abstained,
+        "abstention_rate": (abstained / matched) if matched else 0.0,
+        "abstained_but_gt_in_topk": abstained_with_gt_in_topk,
         "precision": precision, "recall": recall,
         "iou_thresh": iou_thresh,
+        "cls_min_confidence": cls_min_confidence,
     }
     for k in top_ks:
-        metrics[f"top{k}_acc"] = correct_at[k] / matched if matched else 0.0
+        metrics[f"top{k}_acc"] = (correct_at[k] / committed) if committed else 0.0
     if 1 in top_ks and max_k != 1:
         metrics[f"top{max_k}_recovery"] = (
-            (correct_at[max_k] - correct_at[1]) / matched if matched else 0.0
+            (correct_at[max_k] - correct_at[1]) / committed if committed else 0.0
         )
     metrics["confusion"] = {gt: dict(row) for gt, row in confusion.items()}
     metrics["in_topk_only"] = {gt: dict(row) for gt, row in in_topk_only.items()}
+
+    # Per-class abstention rate (matched detections only).
+    abstention_by_class = {}
+    for cls in sorted(matched_per_class):
+        m = matched_per_class[cls]
+        a = abstained_per_class[cls]
+        abstention_by_class[cls] = {
+            "matched": m, "abstained": a,
+            "rate": (a / m) if m else 0.0,
+        }
+    metrics["abstention_by_class"] = abstention_by_class
+
+    # Scale breakdown (committed only).
+    scale_breakdown = {}
+    for s in sorted(scale_n):
+        n = scale_n[s]
+        scale_breakdown[s] = {
+            "n":         n,
+            "correct":   scale_correct[s],
+            "top1_acc":  (scale_correct[s] / n) if n else 0.0,
+        }
+    metrics["scale_breakdown"] = scale_breakdown
+
+    # Threshold sweep — re-bin matched_records over a fixed grid.
+    sweep = []
+    for thresh in (0.0, 0.05, 0.10, 0.15, 0.20, 0.25, 0.30, 0.35, 0.40, 0.50, 0.60):
+        cm, cc = 0, 0
+        for cls_score, plabel, glabel, ptopk, scale in matched_records:
+            if cls_score >= thresh:
+                cm += 1
+                if plabel == glabel:
+                    cc += 1
+        sweep.append({
+            "threshold":     thresh,
+            "committed":     cm,
+            "committed_pct": (cm / matched) if matched else 0.0,
+            "abstention":    1.0 - ((cm / matched) if matched else 0.0),
+            "top1_acc":      (cc / cm) if cm else 0.0,
+        })
+    metrics["threshold_sweep"] = sweep
     return metrics
 
 
@@ -274,11 +372,20 @@ def write_confusion(metrics: dict, out_dir: Path) -> None:
     im = ax.imshow(norm, cmap="Blues", vmin=0.0, vmax=1.0)
     ax.set_xticks(range(n)); ax.set_yticks(range(n))
     ax.set_xticklabels(labels, rotation=45, ha="right")
-    yticklabels = [f"{l} (n={int(mat[i].sum())})" for i, l in enumerate(labels)]
+    abstention_by_class = metrics.get("abstention_by_class", {})
+    yticklabels = []
+    for i, l in enumerate(labels):
+        info = abstention_by_class.get(l, {})
+        committed = int(mat[i].sum())
+        abstained = info.get("abstained", 0)
+        yticklabels.append(f"{l} (committed={committed}, "
+                           f"abstained={abstained})")
     ax.set_yticklabels(yticklabels)
     ax.set_xlabel("predicted")
-    ax.set_ylabel("ground truth (row total in parens)")
-    ax.set_title("Wytrap (MegaDetector + BioCLIP) confusion matrix\n"
+    ax.set_ylabel("ground truth")
+    thresh = metrics.get("cls_min_confidence", 0.0)
+    ax.set_title("Wytrap (MegaDetector + BioCLIP) confusion matrix — "
+                 f"committed only (cls_score >= {thresh:.2f})\n"
                  "color = row-normalized fraction; cell text = pct (raw count)")
     for i in range(n):
         for j in range(n):
@@ -466,24 +573,29 @@ def main() -> int:
     log.info("merge labels    : %s",
              "no" if args.no_merge else f"yes ({args.merge_map}, {len(merges)} entries)")
     log.info("top-k           : %s", top_ks)
+    log.info("commit threshold: cls_score >= %.2f", args.cls_min_confidence)
 
     gt_by_file, file_to_date = load_gt(Path(args.gt), merges=merges)
     log.info("loaded %d GT images, %d boxes",
              len(gt_by_file), sum(len(v) for v in gt_by_file.values()))
 
     gt_files = set(gt_by_file.keys())
-    pred_by_file, quality_counts = load_pred(
+    pred_by_file, quality_counts, scale_counts = load_pred(
         pred_dir, gt_files=gt_files, merges=merges,
         quality_filter=quality_filter,
     )
     log.info("quality breakdown across all loaded preds: %s",
              dict(quality_counts))
+    log.info("scale breakdown across all loaded preds:   %s",
+             dict(scale_counts))
     log.info("eligible (quality-filtered) prediction images: %d, boxes: %d",
              len(pred_by_file), sum(len(v) for v in pred_by_file.values()))
 
     metrics = evaluate(gt_by_file, pred_by_file,
-                       iou_thresh=args.iou, top_ks=top_ks)
+                       iou_thresh=args.iou, top_ks=top_ks,
+                       cls_min_confidence=args.cls_min_confidence)
     metrics["quality_counts"] = dict(quality_counts)
+    metrics["scale_counts"]   = dict(scale_counts)
     metrics["quality_filter"] = args.quality
     metrics["merge_applied"] = not args.no_merge
     metrics["n_gt_images"] = len(gt_by_file)
@@ -495,8 +607,8 @@ def main() -> int:
     log.info("  tp/fp/fn  : %d / %d / %d",
              metrics["tp"], metrics["fp"], metrics["fn"])
 
-    log.info("===== classification (matched detections only, n=%d) =====",
-             metrics["matched"])
+    log.info("===== classification (committed only, n=%d / matched=%d) =====",
+             metrics["committed"], metrics["matched"])
     for k in top_ks:
         log.info("  top-%d acc : %.3f", k, metrics[f"top{k}_acc"])
     max_k = max(top_ks)
@@ -504,8 +616,38 @@ def main() -> int:
         log.info("  top-%d recovery (in top-%d but not top-1): %.3f",
                  max_k, max_k, metrics[f"top{max_k}_recovery"])
 
-    log.info("===== where top-%d saves us (gt label in top-%d but top-1 wrong) =====",
-             max_k, max_k)
+    log.info("===== abstention (matched detections, threshold=%.2f) =====",
+             metrics["cls_min_confidence"])
+    log.info("  matched              : %d", metrics["matched"])
+    log.info("  committed            : %d  (%.0f%%)",
+             metrics["committed"],
+             100 * (1.0 - metrics["abstention_rate"]))
+    log.info("  abstained            : %d  (%.0f%%)",
+             metrics["abstained"], 100 * metrics["abstention_rate"])
+    log.info("  abstained but GT in top-%d: %d  (recoverable if threshold lowered)",
+             max_k, metrics["abstained_but_gt_in_topk"])
+
+    log.info("===== abstention by class =====")
+    for cls, info in sorted(metrics["abstention_by_class"].items(),
+                            key=lambda kv: -kv[1]["rate"]):
+        log.info("  %-20s %5.0f%%  abstained  (%d/%d)",
+                 cls, 100 * info["rate"], info["abstained"], info["matched"])
+
+    log.info("===== scale breakdown (committed only) =====")
+    for scale_name, info in sorted(metrics["scale_breakdown"].items()):
+        log.info("  scale=%-8s n=%5d  top1=%.3f",
+                 scale_name, info["n"], info["top1_acc"])
+
+    log.info("===== threshold sweep (matched detections) =====")
+    log.info("  threshold   committed   abstention   top-1 | committed")
+    for row in metrics["threshold_sweep"]:
+        marker = "  ←" if abs(row["threshold"] - metrics["cls_min_confidence"]) < 1e-9 else ""
+        log.info("  %.2f          %5d        %5.0f%%       %.3f%s",
+                 row["threshold"], row["committed"],
+                 100 * row["abstention"], row["top1_acc"], marker)
+
+    log.info("===== where top-%d saves us (gt label in top-%d but top-1 wrong, "
+             "committed only) =====", max_k, max_k)
     for gt_label, confused in sorted(metrics["in_topk_only"].items(),
                                      key=lambda kv: -sum(kv[1].values())):
         total = sum(confused.values())

@@ -13,7 +13,7 @@ import time
 import numpy as np
 from PIL import Image
 
-from wytrap.classifier import Classifier, bioclip_cache_status
+from wytrap.classifier import Classification, Classifier, bioclip_cache_status
 from wytrap.detector import Detector
 from wytrap.io import (
     DetectionRecord,
@@ -103,6 +103,27 @@ def _crop(image: Image.Image, box: tuple[int, int, int, int]) -> Image.Image:
     return image.crop((x1, y1, x2, y2))
 
 
+def _pad_box(box: tuple[int, int, int, int],
+             image_size: tuple[int, int],
+             factor: float) -> tuple[int, int, int, int]:
+    """Center-expand a box by `factor`, clamped to image bounds.
+
+    factor=2.0 doubles each side around the box center. Clamping at the
+    image edge means a box that's already nearly full-frame stays roughly
+    the same size — the "padded" pass becomes a no-op in that case, which
+    is correct.
+    """
+    x1, y1, x2, y2 = box
+    W, H = image_size
+    cx, cy = (x1 + x2) / 2.0, (y1 + y2) / 2.0
+    bw, bh = (x2 - x1) * factor, (y2 - y1) * factor
+    nx1 = max(0, int(round(cx - bw / 2)))
+    ny1 = max(0, int(round(cy - bh / 2)))
+    nx2 = min(W, int(round(cx + bw / 2)))
+    ny2 = min(H, int(round(cy + bh / 2)))
+    return (nx1, ny1, max(nx1 + 1, nx2), max(ny1 + 1, ny2))
+
+
 def assess_box_quality(box: tuple[int, int, int, int],
                        image_size: tuple[int, int],
                        edge_margin_frac: float = 0.01,
@@ -156,12 +177,20 @@ def process_image(image_path: str | Path,
                   skip_classification_when_bad: bool = False,
                   tile: bool = True,
                   tile_size: int = 480,
-                  tile_overlap: float = 0.2) -> ImageRecord:
+                  tile_overlap: float = 0.2,
+                  multiscale: bool = True,
+                  multiscale_pad: float = 2.0) -> ImageRecord:
     """Run detector + classifier on one image. Returns an ImageRecord.
 
-    Each detection is tagged with a `quality` field based on box geometry;
-    when `skip_classification_when_bad` is True, bad-quality boxes get
-    `label="skipped"` and BioCLIP isn't invoked on them (saves compute).
+    With ``multiscale=True`` (default), each detection is classified at
+    three crop scales (tight / padded / full image) and the highest-scoring
+    scale wins. The whole-image classification is computed once per image
+    and shared across all detections, so cost is ~2N + 1 BioCLIP forward
+    passes per image (N detections), not 3N.
+
+    Each detection is also tagged with a ``quality`` field based on box
+    geometry; when ``skip_classification_when_bad`` is True, bad-quality
+    boxes get ``label="skipped"`` and BioCLIP isn't invoked on them.
     """
     image_path = Path(image_path)
     merges = merges or {}
@@ -192,19 +221,39 @@ def process_image(image_path: str | Path,
 
     # Decide which boxes to actually feed to BioCLIP.
     to_classify_idx: list[int] = []
-    crops: list[Image.Image] = []
+    tight_crops: list[Image.Image] = []
+    padded_crops: list[Image.Image] = []
     for i, (det, (q, _)) in enumerate(zip(detections, qualities)):
         if skip_classification_when_bad and q != "ok":
             continue
         to_classify_idx.append(i)
-        crops.append(_crop(pil, det.box_xyxy))
+        tight_crops.append(_crop(pil, det.box_xyxy))
+        if multiscale:
+            padded_crops.append(_crop(pil, _pad_box(det.box_xyxy, (W, H),
+                                                   multiscale_pad)))
 
-    classifications = classifier.classify_batch(crops) if crops else []
-    cls_by_idx = dict(zip(to_classify_idx, classifications))
+    cls_tight = classifier.classify_batch(tight_crops) if tight_crops else []
+    cls_padded = (classifier.classify_batch(padded_crops)
+                  if multiscale and padded_crops else [None] * len(tight_crops))
+    # Whole-image classification: computed once, shared across all detections.
+    cls_full = classifier.classify(pil) if multiscale and tight_crops else None
+
+    by_idx: dict[int, tuple[Classification, str, dict]] = {}
+    for k, det_idx in enumerate(to_classify_idx):
+        ct = cls_tight[k]
+        scale_scores = {"tight": ct.score}
+        winner_name, winner_cls = "tight", ct
+        if multiscale:
+            cp = cls_padded[k]
+            scale_scores["padded"] = cp.score
+            scale_scores["full"]   = cls_full.score
+            for name, c in (("padded", cp), ("full", cls_full)):
+                if c.score > winner_cls.score:
+                    winner_name, winner_cls = name, c
+        by_idx[det_idx] = (winner_cls, winner_name, scale_scores)
 
     for i, (det, (q, reason)) in enumerate(zip(detections, qualities)):
-        cls = cls_by_idx.get(i)
-        if cls is None:
+        if i not in by_idx:
             # Box was skipped — preserve the detection but note it.
             record.detections.append(DetectionRecord(
                 box_xyxy=list(det.box_xyxy),
@@ -220,6 +269,7 @@ def process_image(image_path: str | Path,
             ))
             continue
 
+        cls, scale_name, scale_scores = by_idx[i]
         canonical = merges.get(cls.fine_label, cls.fine_label)
         record.detections.append(DetectionRecord(
             box_xyxy=list(det.box_xyxy),
@@ -232,6 +282,8 @@ def process_image(image_path: str | Path,
             topk=[t.to_dict() for t in cls.topk],
             quality=q,
             quality_reason=reason,
+            scale=scale_name,
+            scale_scores={k: round(v, 4) for k, v in scale_scores.items()},
         ))
     return record
 
@@ -254,6 +306,8 @@ def process_folder(input_dir: str | Path,
                    tile: bool = True,
                    tile_size: int = 480,
                    tile_overlap: float = 0.2,
+                   multiscale: bool = True,
+                   multiscale_pad: float = 2.0,
                    log: callable = print,
                    log_file: str | Path | None = None) -> dict:
     """Run the full pipeline over a folder of images. Returns summary dict."""
@@ -288,6 +342,8 @@ def process_folder(input_dir: str | Path,
          f"skip_bad={skip_classification_when_bad}")
     plog(f"sliced detection  : tile={tile}, tile_size={tile_size}, "
          f"overlap={tile_overlap}")
+    plog(f"multi-scale cls   : multiscale={multiscale}, "
+         f"pad_factor={multiscale_pad}")
     plog(f"device requested  : {device}")
     plog(f"recursive / resume: {recursive} / {resume}")
     if jsonl_path:
@@ -346,6 +402,7 @@ def process_folder(input_dir: str | Path,
                 max_aspect_ratio=max_aspect_ratio,
                 skip_classification_when_bad=skip_classification_when_bad,
                 tile=tile, tile_size=tile_size, tile_overlap=tile_overlap,
+                multiscale=multiscale, multiscale_pad=multiscale_pad,
             )
             save_record(record, out_path)
             if jsonl_path:
@@ -367,7 +424,8 @@ def process_folder(input_dir: str | Path,
                 pool = ok_dets or record.detections
                 top = max(pool, key=lambda d: d.det_score)
                 tag = "" if top.quality == "ok" else f" [{top.quality}]"
-                preview = (f"{top.label} ({top.cls_score:.2f}){tag}; "
+                scale_tag = f" @{top.scale}" if top.scale != "tight" else ""
+                preview = (f"{top.label} ({top.cls_score:.2f}){scale_tag}{tag}; "
                            f"{len(record.detections)} box(es), "
                            f"{len(ok_dets)} ok")
             else:

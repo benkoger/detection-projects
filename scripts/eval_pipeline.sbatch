@@ -21,6 +21,7 @@
 #   QUALITY=ok                       # 'ok' (default) or 'all'
 #   NO_MERGE=1                       # disable GT label merging
 #   TOP_KS=1,3,5
+#   CLS_MIN_CONF=0.30                # below this cls_score, count as abstained
 
 set -euo pipefail
 mkdir -p logs
@@ -50,6 +51,7 @@ python scripts/eval_pipeline.py \
     --iou "${IOU:-0.5}" \
     --quality "${QUALITY:-ok}" \
     --top-ks "${TOP_KS:-1,3,5}" \
+    --cls-min-confidence "${CLS_MIN_CONF:-0.30}" \
     $NO_MERGE_FLAG
 
 echo "[wytrap-eval.sbatch] done. Metrics in ${OUT:-$PRED/eval}/"

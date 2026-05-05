@@ -23,6 +23,8 @@
 #   NO_TILE=1                        # disable SAHI sliced detection (default: tiled)
 #   TILE_SIZE=480                    # tile edge length in px (default: 480)
 #   TILE_OVERLAP=0.2                 # fractional overlap between adjacent tiles
+#   NO_MULTISCALE=1                  # disable multi-scale BioCLIP (default: on)
+#   MULTISCALE_PAD=2.0               # padded-crop expansion factor
 #   EXTRA_ARGS="--recursive --resume"
 #
 # Persistent log: $OUTPUT_DIR/wytrap.log is written in addition to logs/wytrap-$JOBID.out,
@@ -56,6 +58,12 @@ if [[ "${NO_TILE:-0}" == "1" ]]; then
     NO_TILE_FLAG="--no-tile"
 fi
 
+# Toggle --no-multiscale via NO_MULTISCALE=1.
+NO_MULTISCALE_FLAG=""
+if [[ "${NO_MULTISCALE:-0}" == "1" ]]; then
+    NO_MULTISCALE_FLAG="--no-multiscale"
+fi
+
 wytrap detect \
     --input  "$INPUT_DIR" \
     --output "$OUTPUT_DIR" \
@@ -67,11 +75,13 @@ wytrap detect \
     --max-aspect-ratio "${MAX_ASPECT_RATIO:-5.0}" \
     --tile-size "${TILE_SIZE:-480}" \
     --tile-overlap "${TILE_OVERLAP:-0.2}" \
+    --multiscale-pad "${MULTISCALE_PAD:-2.0}" \
     --device cuda \
     --recursive \
     --resume \
     $SKIP_BAD_FLAG \
     $NO_TILE_FLAG \
+    $NO_MULTISCALE_FLAG \
     ${EXTRA_ARGS:-}
 
 echo "[wytrap.sbatch] complete. Persistent log: $OUTPUT_DIR/wytrap.log"

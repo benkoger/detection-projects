@@ -11,12 +11,14 @@ class DetectionRecord:
     det_score: float               # MegaDetector confidence
     det_label: str                 # "animal" / "person" / "vehicle"
     label: str                     # canonical/merged class (== fine_label by default)
-    fine_label: str                # BioCLIP top-1 common name
-    scientific_label: str          # BioCLIP top-1 scientific name (the prompt)
-    cls_score: float               # BioCLIP top-1 score
+    fine_label: str                # BioCLIP top-1 common name (winning scale)
+    scientific_label: str          # BioCLIP top-1 scientific name (winning scale)
+    cls_score: float               # BioCLIP top-1 score (winning scale)
     topk: list[dict]               # [{"common": ..., "scientific": ..., "score": ...}, ...]
     quality: str = "ok"            # "ok" | "edge" | "small" | "thin" | "skipped"
     quality_reason: str = ""       # short detail when quality != "ok"
+    scale: str = "tight"           # "tight" | "padded" | "full" — which scale won
+    scale_scores: dict = field(default_factory=dict)  # per-scale top-1 scores
 
 
 @dataclass
@@ -50,6 +52,8 @@ def load_record(path: str | Path) -> ImageRecord:
         det.setdefault("scientific_label", det.get("fine_label", ""))
         det.setdefault("quality", "ok")
         det.setdefault("quality_reason", "")
+        det.setdefault("scale", "tight")
+        det.setdefault("scale_scores", {})
         # topk migrated from [[name, score], ...] to [{...}, ...].
         topk = det.get("topk", [])
         if topk and isinstance(topk[0], (list, tuple)):

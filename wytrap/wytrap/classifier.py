@@ -60,6 +60,19 @@ class Classification:
     topk: list[TopKEntry] = field(default_factory=list)
 
 
+@dataclass
+class MultiScaleClassification:
+    """Result of classifying one detection at multiple crop scales.
+
+    `chosen` is whichever scale's Classification scored highest. `scale` is
+    the name of that scale ("tight" / "padded" / "full"). `scale_scores`
+    holds top-1 scores for every scale considered, useful for analysis.
+    """
+    chosen: Classification
+    scale: str
+    scale_scores: dict[str, float]
+
+
 class Classifier:
     """Thin wrapper around pybioclip.CustomLabelsClassifier.
 
