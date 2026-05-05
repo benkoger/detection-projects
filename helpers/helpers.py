@@ -40,6 +40,59 @@ DEFAULT_CATEGORY_MERGES = {
 }
 
 
+# Eval-time-only merges for the YNP_TESTBED species list.
+#
+# Inference now uses species-level prompts (max-over-members strategy), so
+# per-image JSONs preserve the actual species name (e.g. "yellow-bellied
+# marmot"). At eval time we collapse both GT raw labels and predicted species
+# names to the same vocabulary so the confusion matrix is readable.
+#
+# Includes everything in DEFAULT_CATEGORY_MERGES (predator/deer collapse)
+# plus all member species expanded into the testbed list.
+YNP_EVAL_MERGES = {
+    **DEFAULT_CATEGORY_MERGES,
+
+    # Canids (predicted species names not already covered above)
+    "gray wolf": "Canid",
+    "red fox": "Canid",
+    "swift fox": "Canid",
+    "gray fox": "Canid",
+
+    # Rodents → "rodent"
+    "yellow-bellied marmot": "rodent",
+    "red squirrel": "rodent",
+    "fox squirrel": "rodent",
+    "Wyoming ground squirrel": "rodent",
+    "Uinta ground squirrel": "rodent",
+    "Columbian ground squirrel": "rodent",
+    "golden-mantled ground squirrel": "rodent",
+    "thirteen-lined ground squirrel": "rodent",
+    "least chipmunk": "rodent",
+    "meadow vole": "rodent",
+    "deer mouse": "rodent",
+
+    # Birds → "bird"
+    "common raven": "bird",
+    "American crow": "bird",
+    "black-billed magpie": "bird",
+    "Canada jay": "bird",
+    "Steller's jay": "bird",
+    "Clark's nutcracker": "bird",
+    "ruffed grouse": "bird",
+    "greater sage-grouse": "bird",
+    "dusky grouse": "bird",
+    "wild turkey": "bird",
+    "golden eagle": "bird",
+    "bald eagle": "bird",
+    "red-tailed hawk": "bird",
+    "great horned owl": "bird",
+    "American robin": "bird",
+    "American woodcock": "bird",
+    "house finch": "bird",
+    "black-capped chickadee": "bird",
+}
+
+
 def merge_categories(coco, category_merges=None, out_file=None):
     """Merge groups of category names into combined classes.
 

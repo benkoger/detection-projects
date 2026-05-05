@@ -33,7 +33,7 @@ for sub in (REPO_ROOT, REPO_ROOT / "wytrap"):
     if str(sub) not in sys.path:
         sys.path.insert(0, str(sub))
 
-from helpers.helpers import DEFAULT_CATEGORY_MERGES
+from helpers.helpers import DEFAULT_CATEGORY_MERGES, YNP_EVAL_MERGES
 from wytrap.io import load_record
 
 
@@ -64,10 +64,15 @@ def parse_args() -> argparse.Namespace:
                    help="Restrict to quality=='ok' detections (default) or "
                         "evaluate every detection regardless of quality.")
     p.add_argument("--no-merge", action="store_true",
-                   help="Skip the predator/deer category merge. By default, GT "
-                        "labels (coyote/wolf/fox/black bear/grizzly bear/mule "
-                        "deer/white-tailed deer) are collapsed to Canid/Bear/Deer "
-                        "to align with the ynp_testbed species list.")
+                   help="Skip the eval-time category merge. By default, both GT "
+                        "labels and predicted species are collapsed via "
+                        "helpers.YNP_EVAL_MERGES so e.g. predicted "
+                        "'yellow-bellied marmot' counts as a hit on GT 'rodent'.")
+    p.add_argument("--merge-map", default="ynp_eval",
+                   choices=["ynp_eval", "default"],
+                   help="Which merge map to apply. 'ynp_eval' (default) "
+                        "collapses canids/bears/deer/rodents/birds; 'default' "
+                        "is the predator/deer-only map used by FRCNN training.")
     p.add_argument("--top-ks", default="1,3,5",
                    help="Comma-separated k values for top-k accuracy (default '1,3,5').")
     return p.parse_args()
@@ -447,14 +452,19 @@ def main() -> int:
 
     top_ks = sorted({int(k) for k in args.top_ks.split(",") if k.strip()})
     quality_filter = {"ok"} if args.quality == "ok" else None
-    merges = {} if args.no_merge else DEFAULT_CATEGORY_MERGES
+    merge_map = {
+        "ynp_eval": YNP_EVAL_MERGES,
+        "default":  DEFAULT_CATEGORY_MERGES,
+    }[args.merge_map]
+    merges = {} if args.no_merge else merge_map
 
     log.info("gt              : %s", args.gt)
     log.info("pred dir        : %s", pred_dir)
     log.info("out dir         : %s", out_dir)
     log.info("iou threshold   : %s", args.iou)
     log.info("quality filter  : %s", args.quality)
-    log.info("merge GT labels : %s", "no" if args.no_merge else "yes (DEFAULT_CATEGORY_MERGES)")
+    log.info("merge labels    : %s",
+             "no" if args.no_merge else f"yes ({args.merge_map}, {len(merges)} entries)")
     log.info("top-k           : %s", top_ks)
 
     gt_by_file, file_to_date = load_gt(Path(args.gt), merges=merges)

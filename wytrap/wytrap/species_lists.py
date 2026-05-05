@@ -194,24 +194,78 @@ WYOMING_ALL: list[Species] = (
 )
 
 
-# Testbed list for the YNP-BisonGraze validation harness. The 'common' names
-# here mirror the post-merge categories in helpers/helpers.py so we can compare
-# BioCLIP outputs to the trained Faster R-CNN baseline directly. "human",
-# "bird", and "rodent" are not species but supercategories — we pass the same
-# string as both scientific and common since BioCLIP handles both.
+# Testbed list for the YNP-BisonGraze validation harness.
+#
+# Each merged GT category (Canid / Bear / Deer / rodent / bird) is now
+# expanded into its actual member species so BioCLIP gets to pick the species
+# it knows best — a "max over members" strategy. The collapsing back to GT
+# vocabulary happens at *eval* time via helpers.YNP_EVAL_MERGES, not at
+# inference time, so per-image JSONs preserve the species-level prediction.
+#
+# This dramatically improves accuracy on the rodent / bird supercategories
+# (BioCLIP-2 has no clean text embedding for the literal word "rodent" but
+# rich ones for each species name).
 YNP_TESTBED: list[Species] = [
-    _sp("Taxidea taxus", "badger"),
-    _sp("Ovis canadensis", "bighorn sheep"),
+    # Singleton ungulates
     _sp("Bison bison", "bison"),
-    _sp("Ursus americanus", "Bear"),       # collapsed Bear class
-    _sp("Canis latrans", "Canid"),         # collapsed Canid class (coyote as exemplar)
     _sp("Cervus canadensis", "elk"),
-    _sp("Homo sapiens", "human"),
     _sp("Alces alces", "moose"),
-    _sp("Odocoileus hemionus", "Deer"),    # collapsed Deer class (mule deer as exemplar)
     _sp("Antilocapra americana", "pronghorn"),
-    _sp("Aves", "bird"),
-    _sp("Rodentia", "rodent"),
+    _sp("Ovis canadensis", "bighorn sheep"),
+
+    # Canids → "Canid" at eval
+    _sp("Canis latrans", "coyote"),
+    _sp("Canis lupus", "gray wolf"),
+    _sp("Vulpes vulpes", "red fox"),
+    _sp("Vulpes velox", "swift fox"),
+    _sp("Urocyon cinereoargenteus", "gray fox"),
+
+    # Bears → "Bear" at eval
+    _sp("Ursus americanus", "black bear"),
+    _sp("Ursus arctos", "grizzly bear"),
+
+    # Deer → "Deer" at eval
+    _sp("Odocoileus hemionus", "mule deer"),
+    _sp("Odocoileus virginianus", "white-tailed deer"),
+
+    # Rodents (marmots, tree squirrels, ground squirrels, chipmunks,
+    # voles, mice) → "rodent" at eval
+    _sp("Marmota flaviventris", "yellow-bellied marmot"),
+    _sp("Tamiasciurus hudsonicus", "red squirrel"),
+    _sp("Sciurus niger", "fox squirrel"),
+    _sp("Urocitellus elegans", "Wyoming ground squirrel"),
+    _sp("Urocitellus armatus", "Uinta ground squirrel"),
+    _sp("Urocitellus columbianus", "Columbian ground squirrel"),
+    _sp("Callospermophilus lateralis", "golden-mantled ground squirrel"),
+    _sp("Ictidomys tridecemlineatus", "thirteen-lined ground squirrel"),
+    _sp("Neotamias minimus", "least chipmunk"),
+    _sp("Microtus pennsylvanicus", "meadow vole"),
+    _sp("Peromyscus maniculatus", "deer mouse"),
+
+    # Birds (camera-trap-realistic: corvids, grouse, raptors, turkey)
+    # → "bird" at eval
+    _sp("Corvus corax", "common raven"),
+    _sp("Corvus brachyrhynchos", "American crow"),
+    _sp("Pica hudsonia", "black-billed magpie"),
+    _sp("Perisoreus canadensis", "Canada jay"),
+    _sp("Cyanocitta stelleri", "Steller's jay"),
+    _sp("Nucifraga columbiana", "Clark's nutcracker"),
+    _sp("Bonasa umbellus", "ruffed grouse"),
+    _sp("Centrocercus urophasianus", "greater sage-grouse"),
+    _sp("Dendragapus obscurus", "dusky grouse"),
+    _sp("Meleagris gallopavo", "wild turkey"),
+    _sp("Aquila chrysaetos", "golden eagle"),
+    _sp("Haliaeetus leucocephalus", "bald eagle"),
+    _sp("Buteo jamaicensis", "red-tailed hawk"),
+    _sp("Bubo virginianus", "great horned owl"),
+    _sp("Turdus migratorius", "American robin"),
+    _sp("Scolopax minor", "American woodcock"),
+    _sp("Haemorhous mexicanus", "house finch"),
+    _sp("Poecile atricapillus", "black-capped chickadee"),
+
+    # Singleton categories
+    _sp("Taxidea taxus", "badger"),
+    _sp("Homo sapiens", "human"),
 ]
 
 
