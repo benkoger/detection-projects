@@ -257,20 +257,34 @@ def write_confusion(metrics: dict, out_dir: Path) -> None:
         for j, pred in enumerate(labels):
             mat[i, j] = confusion.get(gt, {}).get(pred, 0)
 
+    # Row-normalize so the color encodes per-class behavior, not the absolute
+    # frequency of the class. Otherwise the most common class (bison) saturates
+    # the colorbar and the rest of the matrix looks empty. Raw counts are
+    # preserved in confusion_matrix.csv and shown as cell annotations.
+    row_sum = mat.sum(axis=1, keepdims=True).astype(float)
+    row_sum[row_sum == 0] = 1.0  # avoid /0 for any all-zero rows
+    norm = mat / row_sum
+
     fig, ax = plt.subplots(figsize=(max(8, 0.6 * n + 2), max(7, 0.6 * n + 1)))
-    im = ax.imshow(mat, cmap="Blues")
+    im = ax.imshow(norm, cmap="Blues", vmin=0.0, vmax=1.0)
     ax.set_xticks(range(n)); ax.set_yticks(range(n))
     ax.set_xticklabels(labels, rotation=45, ha="right")
-    ax.set_yticklabels(labels)
-    ax.set_xlabel("predicted"); ax.set_ylabel("ground truth")
-    ax.set_title("Wytrap (MegaDetector + BioCLIP) confusion matrix")
+    yticklabels = [f"{l} (n={int(mat[i].sum())})" for i, l in enumerate(labels)]
+    ax.set_yticklabels(yticklabels)
+    ax.set_xlabel("predicted")
+    ax.set_ylabel("ground truth (row total in parens)")
+    ax.set_title("Wytrap (MegaDetector + BioCLIP) confusion matrix\n"
+                 "color = row-normalized fraction; cell text = pct (raw count)")
     for i in range(n):
         for j in range(n):
             if mat[i, j]:
-                ax.text(j, i, str(mat[i, j]), ha="center", va="center",
-                        color="white" if mat[i, j] > mat.max() / 2 else "black",
-                        fontsize=8)
-    fig.colorbar(im, ax=ax)
+                pct = norm[i, j] * 100
+                ax.text(j, i, f"{pct:.0f}%\n({mat[i, j]})",
+                        ha="center", va="center",
+                        color="white" if norm[i, j] > 0.5 else "black",
+                        fontsize=7)
+    cbar = fig.colorbar(im, ax=ax)
+    cbar.set_label("fraction of GT class predicted as column")
     fig.tight_layout()
     png_path = out_dir / "confusion_matrix.png"
     fig.savefig(png_path, dpi=150)
@@ -379,18 +393,31 @@ def write_species_timeseries(file_to_date: dict[str, str],
     fig_w = max(10.0, 0.12 * n_days + 3.0)
     fig, axes = plt.subplots(2, 1, figsize=(fig_w, fig_h * 2),
                              sharex=True, sharey=True)
-    vmax = max(gt_mat.max(), pred_mat.max(), 1)
 
-    for ax, mat, title in [(axes[0], gt_mat,   "Ground truth (annotated)"),
-                           (axes[1], pred_mat, "Wytrap predictions")]:
-        im = ax.imshow(mat, aspect="auto", cmap="viridis",
-                       vmin=0, vmax=vmax,
-                       interpolation="nearest")
+    # Binary presence/absence: white = no detections that day, solid color =
+    # one or more. We don't care about density on this plot — it's a "did we
+    # see species X on date Y" answer, not a count.
+    from matplotlib.colors import ListedColormap
+    gt_cmap   = ListedColormap(["white", "#1f77b4"])   # blue for GT
+    pred_cmap = ListedColormap(["white", "#d62728"])   # red for predictions
+
+    for ax, mat, title, cmap in [
+        (axes[0], gt_mat,   "Ground truth (annotated)",  gt_cmap),
+        (axes[1], pred_mat, "Wytrap predictions",        pred_cmap),
+    ]:
+        ax.imshow((mat > 0).astype(int), aspect="auto", cmap=cmap,
+                  vmin=0, vmax=1, interpolation="nearest")
         ax.set_yticks(range(n_sp))
         ax.set_yticklabels(species)
-        ax.set_title(f"{title}  ({mat.sum()} total detections)")
+        n_present = int((mat > 0).sum())
+        ax.set_title(f"{title}  "
+                     f"({n_present} species-days, {mat.sum()} detections)")
         ax.set_ylabel("species")
-        fig.colorbar(im, ax=ax, label="detections / day")
+        # faint grid lines so dense days near each other are still readable
+        ax.set_xticks([i - 0.5 for i in range(1, n_days)], minor=True)
+        ax.set_yticks([i - 0.5 for i in range(1, n_sp)], minor=True)
+        ax.grid(which="minor", color="lightgray", linewidth=0.3)
+        ax.tick_params(which="minor", length=0)
 
     # X tick density: roughly one label per ~7 days, but always at least 6.
     step = max(1, n_days // max(6, n_days // 7))
@@ -400,7 +427,8 @@ def write_species_timeseries(file_to_date: dict[str, str],
                             rotation=45, ha="right", fontsize=8)
     axes[1].set_xlabel("date")
 
-    fig.suptitle("Species presence per day  (white = absent)",
+    fig.suptitle("Species presence per day  "
+                 "(white = absent, color = present)",
                  fontsize=12, y=1.0)
     fig.tight_layout()
     png_path = out_dir / "species_timeseries.png"
