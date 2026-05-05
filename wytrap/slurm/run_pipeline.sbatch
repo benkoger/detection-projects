@@ -35,7 +35,7 @@ export INPUT_DIR="/project/wildimageproc/software/annotations/YNP-BisonGraze/ima
 export OUTPUT_DIR="/project/wildimageproc/omartin9/detection-projects/wytrap/output-pipeline"
 export SPECIES="ynp_testbed"
 
-VENV="${VENV:-/project/wildimageproc/software/.venv-wytrap-dev}"
+VENV="${VENV:-/project/wildimageproc/omartin9/.venv-wytrap-dev}"
 source "$VENV/bin/activate"
 
 cd "$SLURM_SUBMIT_DIR"
