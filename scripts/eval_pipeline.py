@@ -329,15 +329,25 @@ def evaluate(gt_by_file: dict[str, list],
     return metrics
 
 
-def write_confusion(metrics: dict, out_dir: Path) -> None:
+def write_confusion(metrics: dict, out_dir: Path,
+                    suffix: str = "",
+                    title_qualifier: str = "") -> None:
+    """Write confusion_matrix{suffix}.csv and .png based on metrics["confusion"].
+
+    `suffix` is appended to the output filenames (e.g. "_committed", "_all")
+    so multiple variants can coexist in one run. `title_qualifier` is an
+    extra string to splice into the figure title (e.g. "committed only,
+    cls_score >= 0.30" or "all detections, no confidence threshold").
+    """
     confusion = metrics["confusion"]
     labels = sorted(set(confusion.keys()) |
                     {p for row in confusion.values() for p in row})
     if not labels:
-        log.warning("confusion matrix is empty; skipping CSV/PNG")
+        log.warning("confusion matrix is empty; skipping CSV/PNG (suffix=%r)",
+                    suffix)
         return
 
-    csv_path = out_dir / "confusion_matrix.csv"
+    csv_path = out_dir / f"confusion_matrix{suffix}.csv"
     with open(csv_path, "w") as f:
         f.write("gt\\pred," + ",".join(labels) + "\n")
         for gt in labels:
@@ -363,7 +373,7 @@ def write_confusion(metrics: dict, out_dir: Path) -> None:
     # Row-normalize so the color encodes per-class behavior, not the absolute
     # frequency of the class. Otherwise the most common class (bison) saturates
     # the colorbar and the rest of the matrix looks empty. Raw counts are
-    # preserved in confusion_matrix.csv and shown as cell annotations.
+    # preserved in confusion_matrix*.csv and shown as cell annotations.
     row_sum = mat.sum(axis=1, keepdims=True).astype(float)
     row_sum[row_sum == 0] = 1.0  # avoid /0 for any all-zero rows
     norm = mat / row_sum
@@ -378,15 +388,18 @@ def write_confusion(metrics: dict, out_dir: Path) -> None:
         info = abstention_by_class.get(l, {})
         committed = int(mat[i].sum())
         abstained = info.get("abstained", 0)
-        yticklabels.append(f"{l} (committed={committed}, "
-                           f"abstained={abstained})")
+        if abstained:
+            yticklabels.append(f"{l} (n={committed}, abstained={abstained})")
+        else:
+            yticklabels.append(f"{l} (n={committed})")
     ax.set_yticklabels(yticklabels)
     ax.set_xlabel("predicted")
     ax.set_ylabel("ground truth")
-    thresh = metrics.get("cls_min_confidence", 0.0)
-    ax.set_title("Wytrap (MegaDetector + BioCLIP) confusion matrix — "
-                 f"committed only (cls_score >= {thresh:.2f})\n"
-                 "color = row-normalized fraction; cell text = pct (raw count)")
+    title = "Wytrap (MegaDetector + BioCLIP) confusion matrix"
+    if title_qualifier:
+        title += f" — {title_qualifier}"
+    ax.set_title(title + "\ncolor = row-normalized fraction; "
+                         "cell text = pct (raw count)")
     for i in range(n):
         for j in range(n):
             if mat[i, j]:
@@ -398,7 +411,7 @@ def write_confusion(metrics: dict, out_dir: Path) -> None:
     cbar = fig.colorbar(im, ax=ax)
     cbar.set_label("fraction of GT class predicted as column")
     fig.tight_layout()
-    png_path = out_dir / "confusion_matrix.png"
+    png_path = out_dir / f"confusion_matrix{suffix}.png"
     fig.savefig(png_path, dpi=150)
     plt.close(fig)
     log.info("wrote %s", png_path)
@@ -428,7 +441,9 @@ def build_species_timeseries(file_to_date: dict[str, str],
         date = file_to_date.get(fname, "")
         if not date:
             continue
-        for _box, label, _topk in preds:
+        for entry in preds:
+            # entries are 5-tuples; older callers may pass 3-tuples.
+            label = entry[1]
             pred_presence[(date, label)] += 1
 
     dates = sorted({d for (d, _) in gt_presence} | {d for (d, _) in pred_presence})
@@ -439,25 +454,29 @@ def build_species_timeseries(file_to_date: dict[str, str],
 def write_species_timeseries(file_to_date: dict[str, str],
                              gt_by_file: dict[str, list],
                              pred_by_file: dict[str, list],
-                             out_dir: Path) -> None:
+                             out_dir: Path,
+                             suffix: str = "",
+                             title_qualifier: str = "") -> None:
     """Render a per-day species presence/absence plot and matching CSV.
 
     Two stacked panels:
       (top)    GT — what the annotators actually saw on each day.
       (bottom) Predictions — what wytrap thinks was present.
 
-    Cell color encodes count of detections on that day (white=absent).
+    `suffix` is appended to the output filenames (e.g. "_committed", "_all").
+    `title_qualifier` adds a description to the figure title.
     """
     dates, species, gt_pres, pred_pres = build_species_timeseries(
         file_to_date, gt_by_file, pred_by_file
     )
     if not dates or not species:
         log.warning("not enough data for species timeseries plot "
-                    "(dates=%d, species=%d)", len(dates), len(species))
+                    "(dates=%d, species=%d, suffix=%r)",
+                    len(dates), len(species), suffix)
         return
 
     # CSV with one row per (date, species) and columns gt_count, pred_count.
-    csv_path = out_dir / "species_timeseries.csv"
+    csv_path = out_dir / f"species_timeseries{suffix}.csv"
     with open(csv_path, "w") as f:
         f.write("date,species,gt_count,pred_count\n")
         for d in dates:
@@ -539,11 +558,12 @@ def write_species_timeseries(file_to_date: dict[str, str],
                             rotation=45, ha="right", fontsize=8)
     axes[1].set_xlabel("date")
 
-    fig.suptitle("Species presence per day  "
-                 "(white = absent, color = present)",
-                 fontsize=12, y=1.0)
+    title = "Species presence per day  (white = absent, color = present)"
+    if title_qualifier:
+        title += f"\n{title_qualifier}"
+    fig.suptitle(title, fontsize=12, y=1.0)
     fig.tight_layout()
-    png_path = out_dir / "species_timeseries.png"
+    png_path = out_dir / f"species_timeseries{suffix}.png"
     fig.savefig(png_path, dpi=150)
     plt.close(fig)
     log.info("wrote %s", png_path)
@@ -661,8 +681,49 @@ def main() -> int:
         json.dump(metrics, f, indent=2)
     log.info("wrote %s", metrics_path)
 
-    write_confusion(metrics, out_dir)
-    write_species_timeseries(file_to_date, gt_by_file, pred_by_file, out_dir)
+    # ----------- side-by-side outputs: committed vs all -----------
+    # For comparison, also compute a second metrics pass with NO confidence
+    # filter and emit a parallel set of confusion matrices + timeseries.
+    # The committed view is the "trustworthy answer"; the all view shows
+    # what we'd get if we just used every prediction regardless of score.
+    log.info("Computing 'all detections' metrics pass for side-by-side comparison")
+    metrics_all = evaluate(gt_by_file, pred_by_file,
+                           iou_thresh=args.iou, top_ks=top_ks,
+                           cls_min_confidence=0.0)
+    metrics_all["quality_filter"] = args.quality
+    metrics_all["merge_applied"] = not args.no_merge
+    metrics_all_path = out_dir / "metrics_all.json"
+    with open(metrics_all_path, "w") as f:
+        json.dump(metrics_all, f, indent=2)
+    log.info("wrote %s", metrics_all_path)
+
+    # Pred-by-file filtered to committed-only for the timeseries.
+    pred_committed: dict[str, list] = defaultdict(list)
+    for fname, preds in pred_by_file.items():
+        for entry in preds:
+            cls_score = entry[3]
+            if cls_score >= args.cls_min_confidence:
+                pred_committed[fname].append(entry)
+
+    threshold_str = f"cls_score >= {args.cls_min_confidence:.2f}"
+    write_confusion(metrics, out_dir,
+                    suffix="_committed",
+                    title_qualifier=f"committed only ({threshold_str})")
+    write_confusion(metrics_all, out_dir,
+                    suffix="_all",
+                    title_qualifier="all detections (no confidence threshold)")
+
+    write_species_timeseries(file_to_date, gt_by_file, pred_committed,
+                             out_dir, suffix="_committed",
+                             title_qualifier=(
+                                 f"Predictions filtered to committed "
+                                 f"({threshold_str}) — "
+                                 f"{sum(len(v) for v in pred_committed.values())} "
+                                 f"of {sum(len(v) for v in pred_by_file.values())} preds"))
+    write_species_timeseries(file_to_date, gt_by_file, pred_by_file,
+                             out_dir, suffix="_all",
+                             title_qualifier=(
+                                 "Predictions: all detections (no confidence threshold)"))
     return 0
 
 
