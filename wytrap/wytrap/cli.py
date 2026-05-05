@@ -21,8 +21,11 @@ def _add_detect_parser(sub: argparse._SubParsersAction) -> None:
     p.add_argument("--species", default="wyoming_all",
                    help="Builtin name (e.g. wyoming_all, wyoming_mammals, "
                         "ynp_testbed) or path to a newline-delimited species file.")
-    p.add_argument("--det-threshold", type=float, default=0.2,
-                   help="MegaDetector confidence cutoff (default: 0.2).")
+    p.add_argument("--det-threshold", type=float, default=0.10,
+                   help="MegaDetector confidence cutoff (default: 0.10). "
+                        "Lower than the historical 0.2 to catch small / "
+                        "distant animals; the box-quality filter and NMS "
+                        "downstream remove most of the resulting noise.")
     p.add_argument("--cls-topk", type=int, default=5,
                    help="BioCLIP top-k labels to record per detection (default: 5).")
     p.add_argument("--batch-size", type=int, default=8,

@@ -21,12 +21,13 @@ class Detector:
     absolute pixel xyxy coordinates.
     """
 
-    # MegaDetector v6 variants exposed by PytorchWildlife. yolov9-c is the
-    # default: compact yolov9 backbone, fast on a single GPU and accurate
-    # enough for general camera-trap use.
-    DEFAULT_VERSION = "MDV6-yolov9-c"
+    # MegaDetector v6 variants exposed by PytorchWildlife. yolov9-e is the
+    # extended yolov9 backbone (~60M params): ~1.5x slower than yolov9-c
+    # but materially better small-object recall, which matters for
+    # zoomed-out camera-trap deployments.
+    DEFAULT_VERSION = "MDV6-yolov9-e"
 
-    def __init__(self, device: str = "auto", det_threshold: float = 0.2,
+    def __init__(self, device: str = "auto", det_threshold: float = 0.10,
                  keep_labels: tuple[str, ...] = ("animal",),
                  version: str = DEFAULT_VERSION):
         self._allowlist_ultralytics_globals()

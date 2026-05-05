@@ -32,8 +32,6 @@ set -euo pipefail
 mkdir -p logs
 
 # Shared model cache so each researcher doesn't re-download MegaDetector + BioCLIP weights.
-export HF_HOME="${HF_HOME:-/project/wildimageproc/software/models}"
-export TORCH_HOME="${TORCH_HOME:-/project/wildimageproc/software/models/torch}"
 export INPUT_DIR="/project/wildimageproc/software/annotations/YNP-BisonGraze/images"
 export OUTPUT_DIR="/project/wildimageproc/omartin9/detection-projects/wytrap/output-pipeline"
 export SPECIES="ynp_testbed"
@@ -62,7 +60,7 @@ wytrap detect \
     --input  "$INPUT_DIR" \
     --output "$OUTPUT_DIR" \
     --species "${SPECIES:-wyoming_all}" \
-    --det-threshold "${DET_THRESHOLD:-0.2}" \
+    --det-threshold "${DET_THRESHOLD:-0.10}" \
     --batch-size "${BATCH_SIZE:-8}" \
     --edge-margin-frac "${EDGE_MARGIN_FRAC:-0.01}" \
     --min-box-area-frac "${MIN_BOX_AREA_FRAC:-0.005}" \
