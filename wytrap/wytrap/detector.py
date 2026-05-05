@@ -105,12 +105,102 @@ class Detector:
         except ImportError:
             return "cpu"
 
-    def detect(self, image: np.ndarray) -> list[Detection]:
-        """Run detection on a single RGB image (H, W, 3) numpy array."""
-        result = self._model.single_image_detection(
-            image, det_conf_thres=self.det_threshold
-        )
-        return self._to_detections(result)
+    def detect(self, image: np.ndarray,
+               tile: bool = True,
+               tile_size: int = 480,
+               overlap: float = 0.2,
+               nms_iou: float = 0.5) -> list[Detection]:
+        """Run detection on a single RGB image (H, W, 3) numpy array.
+
+        With ``tile=True`` (default), uses SAHI-style sliced inference: the
+        full image plus a grid of overlapping ``tile_size`` tiles are each
+        run through the detector, results are merged in full-image
+        coordinates, and NMS deduplicates overlapping boxes (IoU > nms_iou).
+
+        - **Zoomed-out shots**: tiny animals get effectively magnified by
+          tiling, so MegaDetector sees them at training resolution.
+        - **Zoomed-in shots**: the full-image pass catches large animals
+          even if they straddle tile boundaries; NMS dominates because
+          the full-image detection is higher confidence.
+        - **Small images** (both sides ≤ tile_size): tiling is skipped and
+          this collapses to a plain full-image detection.
+        """
+        H, W = image.shape[:2]
+
+        if not tile or (W <= tile_size and H <= tile_size):
+            return self._to_detections(
+                self._model.single_image_detection(
+                    image, det_conf_thres=self.det_threshold
+                )
+            )
+
+        all_dets: list[Detection] = []
+
+        # Full-image pass — catches large animals that span multiple tiles.
+        all_dets.extend(self._to_detections(
+            self._model.single_image_detection(
+                image, det_conf_thres=self.det_threshold
+            )
+        ))
+
+        # Sliced passes.
+        stride = max(1, int(tile_size * (1.0 - overlap)))
+        ys = list(range(0, max(H - tile_size, 0) + 1, stride))
+        xs = list(range(0, max(W - tile_size, 0) + 1, stride))
+        # Ensure the last row/column reaches the image edge.
+        if ys and ys[-1] + tile_size < H:
+            ys.append(H - tile_size)
+        if xs and xs[-1] + tile_size < W:
+            xs.append(W - tile_size)
+        if not ys: ys = [0]
+        if not xs: xs = [0]
+
+        for y in ys:
+            for x in xs:
+                tile_img = image[y:y + tile_size, x:x + tile_size]
+                tile_dets = self._to_detections(
+                    self._model.single_image_detection(
+                        tile_img, det_conf_thres=self.det_threshold
+                    )
+                )
+                # Translate tile-local boxes back to full-image coords.
+                for d in tile_dets:
+                    tx1, ty1, tx2, ty2 = d.box_xyxy
+                    all_dets.append(Detection(
+                        box_xyxy=(tx1 + x, ty1 + y, tx2 + x, ty2 + y),
+                        score=d.score,
+                        label=d.label,
+                    ))
+
+        return self._nms(all_dets, iou_thresh=nms_iou)
+
+    @staticmethod
+    def _nms(dets: list[Detection], iou_thresh: float = 0.5) -> list[Detection]:
+        """Per-class greedy NMS. Keeps the highest-confidence box and
+        suppresses boxes of the same label whose IoU exceeds the threshold."""
+        if not dets:
+            return []
+
+        def iou(a, b) -> float:
+            ax1, ay1, ax2, ay2 = a; bx1, by1, bx2, by2 = b
+            ix1, iy1 = max(ax1, bx1), max(ay1, by1)
+            ix2, iy2 = min(ax2, bx2), min(ay2, by2)
+            iw, ih = max(0, ix2 - ix1), max(0, iy2 - iy1)
+            inter = iw * ih
+            ua = (ax2 - ax1) * (ay2 - ay1) + (bx2 - bx1) * (by2 - by1) - inter
+            return inter / ua if ua > 0 else 0.0
+
+        kept: list[Detection] = []
+        # Process highest-confidence first.
+        remaining = sorted(dets, key=lambda d: d.score, reverse=True)
+        while remaining:
+            head = remaining.pop(0)
+            kept.append(head)
+            remaining = [
+                d for d in remaining
+                if d.label != head.label or iou(head.box_xyxy, d.box_xyxy) < iou_thresh
+            ]
+        return kept
 
     def detect_batch(self, images: Iterable[np.ndarray],
                      batch_size: int = 8) -> list[list[Detection]]:

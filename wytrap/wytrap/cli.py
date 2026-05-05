@@ -53,6 +53,19 @@ def _add_detect_parser(sub: argparse._SubParsersAction) -> None:
                    help="Persistent log file. Default: <output>/wytrap.log. "
                         "Logs are appended in addition to stdout, so SLURM "
                         ".out and the run folder both keep a copy.")
+    p.add_argument("--no-tile", action="store_true",
+                   help="Disable SAHI sliced detection. By default we run "
+                        "MegaDetector on the full image plus a grid of "
+                        "overlapping tiles and NMS-merge the results — "
+                        "improves recall on zoomed-out / far-shot cameras.")
+    p.add_argument("--tile-size", type=int, default=480,
+                   help="Tile edge length in pixels (default: 480; "
+                        "MegaDetector v6's native input is 640, but 480 "
+                        "magnifies small animals enough to catch "
+                        "zoomed-out-camera p10 boxes).")
+    p.add_argument("--tile-overlap", type=float, default=0.2,
+                   help="Fractional overlap between adjacent tiles "
+                        "(default: 0.2 = 20%%).")
 
 
 def _add_species_parser(sub: argparse._SubParsersAction) -> None:
@@ -85,6 +98,9 @@ def _cmd_detect(args: argparse.Namespace) -> int:
         min_box_area_frac=args.min_box_area_frac,
         max_aspect_ratio=args.max_aspect_ratio,
         skip_classification_when_bad=args.skip_classification_when_bad,
+        tile=not args.no_tile,
+        tile_size=args.tile_size,
+        tile_overlap=args.tile_overlap,
         log_file=args.log_file,
     )
     return 0 if summary["failed"] == 0 else 1

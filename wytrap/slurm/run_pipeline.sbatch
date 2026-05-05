@@ -20,6 +20,9 @@
 #   MIN_BOX_AREA_FRAC=0.005
 #   MAX_ASPECT_RATIO=5.0
 #   SKIP_BAD=1                       # opt in to --skip-classification-when-bad
+#   NO_TILE=1                        # disable SAHI sliced detection (default: tiled)
+#   TILE_SIZE=480                    # tile edge length in px (default: 480)
+#   TILE_OVERLAP=0.2                 # fractional overlap between adjacent tiles
 #   EXTRA_ARGS="--recursive --resume"
 #
 # Persistent log: $OUTPUT_DIR/wytrap.log is written in addition to logs/wytrap-$JOBID.out,
@@ -49,6 +52,12 @@ if [[ "${SKIP_BAD:-0}" == "1" ]]; then
     SKIP_BAD_FLAG="--skip-classification-when-bad"
 fi
 
+# Toggle --no-tile via NO_TILE=1.
+NO_TILE_FLAG=""
+if [[ "${NO_TILE:-0}" == "1" ]]; then
+    NO_TILE_FLAG="--no-tile"
+fi
+
 wytrap detect \
     --input  "$INPUT_DIR" \
     --output "$OUTPUT_DIR" \
@@ -58,10 +67,13 @@ wytrap detect \
     --edge-margin-frac "${EDGE_MARGIN_FRAC:-0.01}" \
     --min-box-area-frac "${MIN_BOX_AREA_FRAC:-0.005}" \
     --max-aspect-ratio "${MAX_ASPECT_RATIO:-5.0}" \
+    --tile-size "${TILE_SIZE:-480}" \
+    --tile-overlap "${TILE_OVERLAP:-0.2}" \
     --device cuda \
     --recursive \
     --resume \
     $SKIP_BAD_FLAG \
+    $NO_TILE_FLAG \
     ${EXTRA_ARGS:-}
 
 echo "[wytrap.sbatch] complete. Persistent log: $OUTPUT_DIR/wytrap.log"

@@ -153,7 +153,10 @@ def process_image(image_path: str | Path,
                   edge_margin_frac: float = 0.01,
                   min_box_area_frac: float = 0.005,
                   max_aspect_ratio: float = 5.0,
-                  skip_classification_when_bad: bool = False) -> ImageRecord:
+                  skip_classification_when_bad: bool = False,
+                  tile: bool = True,
+                  tile_size: int = 480,
+                  tile_overlap: float = 0.2) -> ImageRecord:
     """Run detector + classifier on one image. Returns an ImageRecord.
 
     Each detection is tagged with a `quality` field based on box geometry;
@@ -167,7 +170,8 @@ def process_image(image_path: str | Path,
     arr = np.asarray(pil)
     W, H = pil.size
 
-    detections = detector.detect(arr)
+    detections = detector.detect(arr, tile=tile, tile_size=tile_size,
+                                 overlap=tile_overlap)
     record = ImageRecord(
         image_path=str(image_path),
         image_size=[W, H],
@@ -247,6 +251,9 @@ def process_folder(input_dir: str | Path,
                    min_box_area_frac: float = 0.005,
                    max_aspect_ratio: float = 5.0,
                    skip_classification_when_bad: bool = False,
+                   tile: bool = True,
+                   tile_size: int = 480,
+                   tile_overlap: float = 0.2,
                    log: callable = print,
                    log_file: str | Path | None = None) -> dict:
     """Run the full pipeline over a folder of images. Returns summary dict."""
@@ -279,6 +286,8 @@ def process_folder(input_dir: str | Path,
     plog(f"box quality       : edge<{edge_margin_frac}, "
          f"area<{min_box_area_frac}, ar>{max_aspect_ratio}, "
          f"skip_bad={skip_classification_when_bad}")
+    plog(f"sliced detection  : tile={tile}, tile_size={tile_size}, "
+         f"overlap={tile_overlap}")
     plog(f"device requested  : {device}")
     plog(f"recursive / resume: {recursive} / {resume}")
     if jsonl_path:
@@ -336,6 +345,7 @@ def process_folder(input_dir: str | Path,
                 min_box_area_frac=min_box_area_frac,
                 max_aspect_ratio=max_aspect_ratio,
                 skip_classification_when_bad=skip_classification_when_bad,
+                tile=tile, tile_size=tile_size, tile_overlap=tile_overlap,
             )
             save_record(record, out_path)
             if jsonl_path:
