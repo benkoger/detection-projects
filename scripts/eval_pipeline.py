@@ -104,16 +104,27 @@ def load_gt(gt_path: Path,
         file_to_date[im["file_name"]] = date
 
     gt_by_file: dict[str, list] = defaultdict(list)
+    orphan_ids: set[int] = set()
+    n_orphans = 0
     for ann in coco["annotations"]:
-        fname = im_id_to_file[ann["image_id"]]
-        if fname.startswith("."):
+        fname = im_id_to_file.get(ann["image_id"])
+        if fname is None or fname.startswith("."):
+            continue
+        cat_id = ann["category_id"]
+        if cat_id not in id_to_name:
+            orphan_ids.add(cat_id)
+            n_orphans += 1
             continue
         x, y, w, h = ann["bbox"]
-        raw_label = id_to_name[ann["category_id"]]
+        raw_label = id_to_name[cat_id]
         label = merges.get(raw_label, raw_label)
         gt_by_file[fname].append((
             [int(x), int(y), int(x + w), int(y + h)], label
         ))
+    if n_orphans:
+        log.warning("dropped %d annotations with unknown category_id(s) %s "
+                    "(not in coco['categories']).",
+                    n_orphans, sorted(orphan_ids))
     return gt_by_file, file_to_date
 
 
