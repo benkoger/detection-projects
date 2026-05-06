@@ -62,8 +62,8 @@ mkdir -p "$TINY_OUTPUT"
 SKIP_BAD_FLAG=""
 if [[ "${SKIP_BAD:-0}" == "1" ]]; then SKIP_BAD_FLAG="--skip-classification-when-bad"; fi
 # Tiling is OFF by default; TILE=1 opts back in.
-NO_TILE_FLAG="--no-tile"
-if [[ "${TILE:-0}" == "1" ]]; then NO_TILE_FLAG=""; fi
+TILE_FLAG=""
+if [[ "${TILE:-0}" == "1" ]]; then TILE_FLAG="--tile"; fi
 NO_MULTISCALE_FLAG=""
 if [[ "${NO_MULTISCALE:-0}" == "1" ]]; then NO_MULTISCALE_FLAG="--no-multiscale"; fi
 
@@ -83,7 +83,7 @@ wytrap detect \
     --multiscale-pad "${MULTISCALE_PAD:-2.0}" \
     --device cuda \
     --recursive \
-    $SKIP_BAD_FLAG $NO_TILE_FLAG $NO_MULTISCALE_FLAG \
+    $SKIP_BAD_FLAG $TILE_FLAG $NO_MULTISCALE_FLAG \
     ${EXTRA_ARGS:-}
 
 T1=$(date +%s)

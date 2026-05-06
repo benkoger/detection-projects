@@ -53,11 +53,11 @@ if [[ "${SKIP_BAD:-0}" == "1" ]]; then
     SKIP_BAD_FLAG="--skip-classification-when-bad"
 fi
 
-# Tiling is OFF by default (SAHI hurt both precision and recall on
-# YNP-BisonGraze in our tiny-eval A/B). Opt back in with TILE=1.
-NO_TILE_FLAG="--no-tile"
+# Tiling is OFF by default in wytrap (SAHI hurt both precision and recall
+# on YNP-BisonGraze in our tiny-eval A/B). Opt back in with TILE=1.
+TILE_FLAG=""
 if [[ "${TILE:-0}" == "1" ]]; then
-    NO_TILE_FLAG=""
+    TILE_FLAG="--tile"
 fi
 
 # Toggle --no-multiscale via NO_MULTISCALE=1.
@@ -82,7 +82,7 @@ wytrap detect \
     --recursive \
     --resume \
     $SKIP_BAD_FLAG \
-    $NO_TILE_FLAG \
+    $TILE_FLAG \
     $NO_MULTISCALE_FLAG \
     ${EXTRA_ARGS:-}
 
