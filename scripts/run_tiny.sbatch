@@ -44,7 +44,11 @@ cd "$SLURM_SUBMIT_DIR"
 : "${TINY:?TINY must be set (path to dir built by build_tiny_eval.py)}"
 TINY_IMAGES="$TINY/images"
 TINY_GT="$TINY/combined.json"
-TINY_OUTPUT="$TINY/output"
+# OUTPUT_NAME lets you run multiple experiments side-by-side under the
+# same TINY dir without trampling each other:
+#   OUTPUT_NAME=output_no_tile  NO_TILE=1        sbatch run_tiny.sbatch
+#   OUTPUT_NAME=output_det065   DET_THRESHOLD=0.65 sbatch run_tiny.sbatch
+TINY_OUTPUT="$TINY/${OUTPUT_NAME:-output}"
 
 [[ -d "$TINY_IMAGES" ]] || { echo "missing $TINY_IMAGES"; exit 2; }
 [[ -f "$TINY_GT" ]]     || { echo "missing $TINY_GT"; exit 2; }
