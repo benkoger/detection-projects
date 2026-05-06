@@ -370,15 +370,12 @@ def write_confusion(metrics: dict, out_dir: Path,
         for j, pred in enumerate(labels):
             mat[i, j] = confusion.get(gt, {}).get(pred, 0)
 
-    # Row-normalize so the color encodes per-class behavior, not the absolute
-    # frequency of the class. Otherwise the most common class (bison) saturates
-    # the colorbar and the rest of the matrix looks empty. Raw counts are
-    # preserved in confusion_matrix*.csv and shown as cell annotations.
     row_sum = mat.sum(axis=1, keepdims=True).astype(float)
     row_sum[row_sum == 0] = 1.0  # avoid /0 for any all-zero rows
     norm = mat / row_sum
 
-    fig, ax = plt.subplots(figsize=(max(8, 0.6 * n + 2), max(7, 0.6 * n + 1)))
+    # Wider figure + small left margin keeps the title clear of the colorbar.
+    fig, ax = plt.subplots(figsize=(max(10, 0.7 * n + 3), max(7, 0.6 * n + 1)))
     im = ax.imshow(norm, cmap="Blues", vmin=0.0, vmax=1.0)
     ax.set_xticks(range(n)); ax.set_yticks(range(n))
     ax.set_xticklabels(labels, rotation=45, ha="right")
@@ -395,11 +392,13 @@ def write_confusion(metrics: dict, out_dir: Path,
     ax.set_yticklabels(yticklabels)
     ax.set_xlabel("predicted")
     ax.set_ylabel("ground truth")
-    title = "Wytrap (MegaDetector + BioCLIP) confusion matrix"
+    title = "Confusion matrix"
     if title_qualifier:
         title += f" — {title_qualifier}"
-    ax.set_title(title + "\ncolor = row-normalized fraction; "
-                         "cell text = pct (raw count)")
+    ax.set_title(title)
+    fig.text(0.5, 0.01,
+             "row-normalized; cell text = pct (raw count)",
+             ha="center", fontsize=9, color="gray")
     for i in range(n):
         for j in range(n):
             if mat[i, j]:
