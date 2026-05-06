@@ -20,7 +20,8 @@
 #   MIN_BOX_AREA_FRAC=0.005
 #   MAX_ASPECT_RATIO=5.0
 #   SKIP_BAD=1                       # opt in to --skip-classification-when-bad
-#   NO_TILE=1                        # disable SAHI sliced detection (default: tiled)
+#   TILE=1                           # opt in to SAHI sliced detection
+#                                    # (default: OFF — tiling hurt P/R on YNP-BisonGraze)
 #   TILE_SIZE=480                    # tile edge length in px (default: 480)
 #   TILE_OVERLAP=0.2                 # fractional overlap between adjacent tiles
 #   NO_MULTISCALE=1                  # disable multi-scale BioCLIP (default: on)
@@ -52,10 +53,11 @@ if [[ "${SKIP_BAD:-0}" == "1" ]]; then
     SKIP_BAD_FLAG="--skip-classification-when-bad"
 fi
 
-# Toggle --no-tile via NO_TILE=1.
-NO_TILE_FLAG="1"
-if [[ "${NO_TILE:-0}" == "1" ]]; then
-    NO_TILE_FLAG="--no-tile"
+# Tiling is OFF by default (SAHI hurt both precision and recall on
+# YNP-BisonGraze in our tiny-eval A/B). Opt back in with TILE=1.
+NO_TILE_FLAG="--no-tile"
+if [[ "${TILE:-0}" == "1" ]]; then
+    NO_TILE_FLAG=""
 fi
 
 # Toggle --no-multiscale via NO_MULTISCALE=1.

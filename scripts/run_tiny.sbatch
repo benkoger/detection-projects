@@ -22,7 +22,7 @@
 #   SPECIES=ynp_testbed
 #   DET_THRESHOLD=0.10
 #   TILE_SIZE=480 TILE_OVERLAP=0.2
-#   NO_TILE=1 NO_MULTISCALE=1 SKIP_BAD=1
+#   TILE=1 NO_MULTISCALE=1 SKIP_BAD=1
 #   CLS_MIN_CONF=0.30                 # eval-side threshold
 #   QUALITY=ok|all                    # eval-side quality filter
 #
@@ -46,7 +46,7 @@ TINY_IMAGES="$TINY/images"
 TINY_GT="$TINY/combined.json"
 # OUTPUT_NAME lets you run multiple experiments side-by-side under the
 # same TINY dir without trampling each other:
-#   OUTPUT_NAME=output_no_tile  NO_TILE=1        sbatch run_tiny.sbatch
+#   OUTPUT_NAME=output_with_tile TILE=1            sbatch run_tiny.sbatch
 #   OUTPUT_NAME=output_det065   DET_THRESHOLD=0.65 sbatch run_tiny.sbatch
 TINY_OUTPUT="$TINY/${OUTPUT_NAME:-output}"
 
@@ -61,8 +61,9 @@ mkdir -p "$TINY_OUTPUT"
 # Optional toggles for inference.
 SKIP_BAD_FLAG=""
 if [[ "${SKIP_BAD:-0}" == "1" ]]; then SKIP_BAD_FLAG="--skip-classification-when-bad"; fi
-NO_TILE_FLAG=""
-if [[ "${NO_TILE:-0}" == "1" ]]; then NO_TILE_FLAG="--no-tile"; fi
+# Tiling is OFF by default; TILE=1 opts back in.
+NO_TILE_FLAG="--no-tile"
+if [[ "${TILE:-0}" == "1" ]]; then NO_TILE_FLAG=""; fi
 NO_MULTISCALE_FLAG=""
 if [[ "${NO_MULTISCALE:-0}" == "1" ]]; then NO_MULTISCALE_FLAG="--no-multiscale"; fi
 

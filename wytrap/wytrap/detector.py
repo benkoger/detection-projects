@@ -123,7 +123,7 @@ class Detector:
             return "cpu"
 
     def detect(self, image: np.ndarray,
-               tile: bool = True,
+               tile: bool = False,
                tile_size: int = 480,
                overlap: float = 0.2,
                nms_iou: float = 0.3) -> list[Detection]:
