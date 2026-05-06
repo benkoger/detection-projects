@@ -142,18 +142,20 @@ def load_pred(pred_dir: Path,
               gt_files: set[str],
               merges: dict[str, str],
               quality_filter: set[str] | None
-              ) -> tuple[dict[str, list], Counter, Counter]:
+              ) -> tuple[dict[str, list], Counter, Counter, dict[str, str]]:
     """Load wytrap per-image JSONs.
 
     Returns:
         pred_by_file: {file_basename: [(xyxy, merged_top1, [merged_topk_labels],
-                                         cls_score, scale)]}
+                                         cls_score, scale, fine_label)]}
         quality_counts: Counter of quality field values across all preds.
         scale_counts:   Counter of scale field values across all preds.
+        fname_to_image_path: {file_basename: absolute image path on disk}
     """
     pred_by_file: dict[str, list] = defaultdict(list)
     quality_counts: Counter[str] = Counter()
     scale_counts:   Counter[str] = Counter()
+    fname_to_image_path: dict[str, str] = {}
     n_records_seen = 0
     n_records_matched = 0
     for jf in pred_dir.rglob("*.json"):
@@ -176,6 +178,7 @@ def load_pred(pred_dir: Path,
         if fname not in gt_files:
             continue
         n_records_matched += 1
+        fname_to_image_path[fname] = rec.image_path
         for det in rec.detections:
             quality_counts[det.quality] += 1
             scale_counts[det.scale] += 1
@@ -185,10 +188,11 @@ def load_pred(pred_dir: Path,
             topk = [merges.get(t.get("common", ""), t.get("common", ""))
                     for t in (det.topk or [])]
             pred_by_file[fname].append((det.box_xyxy, top1, topk,
-                                        float(det.cls_score), det.scale))
+                                        float(det.cls_score), det.scale,
+                                        det.fine_label))
     log.info("scanned %d pipeline JSONs, matched %d to GT filenames",
              n_records_seen, n_records_matched)
-    return pred_by_file, quality_counts, scale_counts
+    return pred_by_file, quality_counts, scale_counts, fname_to_image_path
 
 
 def evaluate(gt_by_file: dict[str, list],
@@ -229,7 +233,7 @@ def evaluate(gt_by_file: dict[str, list],
     for fname, gts in gt_by_file.items():
         preds = pred_by_file.get(fname, [])
         gt_used = [False] * len(gts)
-        for pbox, plabel, ptopk, cls_score, scale in preds:
+        for pbox, plabel, ptopk, cls_score, scale, _fine in preds:
             best_iou, best_j = 0.0, -1
             for j, (gbox, _) in enumerate(gts):
                 if gt_used[j]:
@@ -568,6 +572,336 @@ def write_species_timeseries(file_to_date: dict[str, str],
     log.info("wrote %s", png_path)
 
 
+def select_representatives(pred_by_file: dict[str, list],
+                           file_to_date: dict[str, str]
+                           ) -> dict[tuple[str, str], dict]:
+    """For each (date, species) cell, pick the representative detection to
+    show as a thumbnail.
+
+    Selection rule: prefer scale=='tight' wins (BioCLIP committed without
+    needing padded/full crop fallback — typically cleaner box), then sort
+    by cls_score within that scale group. Falls back to any-scale max if
+    no tight prediction exists for the cell.
+
+    Returns: {(date, species): {"fname", "box_xyxy", "cls_score", "scale",
+                                 "fine_label", "merged_label"}}
+    """
+    by_cell: dict[tuple[str, str], list[dict]] = defaultdict(list)
+    for fname, preds in pred_by_file.items():
+        date = file_to_date.get(fname, "")
+        if not date:
+            continue
+        for box, merged_label, _topk, cls_score, scale, fine_label in preds:
+            by_cell[(date, merged_label)].append({
+                "fname":         fname,
+                "box_xyxy":      box,
+                "cls_score":     cls_score,
+                "scale":         scale,
+                "fine_label":    fine_label,
+                "merged_label":  merged_label,
+            })
+
+    representative: dict[tuple[str, str], dict] = {}
+    for cell, dets in by_cell.items():
+        tight = [d for d in dets if d["scale"] == "tight"]
+        pool = tight if tight else dets
+        representative[cell] = max(pool, key=lambda d: d["cls_score"])
+    return representative
+
+
+def _safe(name: str) -> str:
+    """Filename-safe slug for species/date strings."""
+    import re as _re
+    return _re.sub(r"[^A-Za-z0-9._-]", "_", name)
+
+
+def render_thumbnail(image_path: str | Path,
+                     box_xyxy: list[int],
+                     out_path: Path,
+                     max_size: int = 1024,
+                     box_color: tuple[int, int, int] = (220, 30, 30),
+                     box_width: int = 4) -> bool:
+    """Open the image, draw a red bounding box, downscale so the long edge
+    is `max_size`, save as JPEG. Returns True on success, False on failure
+    (missing/unreadable image, etc.)."""
+    try:
+        from PIL import Image, ImageDraw
+    except ImportError:
+        log.warning("Pillow not available; cannot render thumbnails")
+        return False
+
+    try:
+        img = Image.open(image_path).convert("RGB")
+    except Exception as e:
+        log.warning("could not open %s for thumbnail: %s", image_path, e)
+        return False
+
+    # Draw the box at full image resolution so the line is crisp post-scale.
+    draw = ImageDraw.Draw(img)
+    x1, y1, x2, y2 = box_xyxy
+    draw.rectangle([x1, y1, x2, y2], outline=box_color, width=box_width)
+
+    W, H = img.size
+    long_edge = max(W, H)
+    if long_edge > max_size:
+        scale = max_size / long_edge
+        img = img.resize((int(W * scale), int(H * scale)),
+                         Image.Resampling.LANCZOS)
+
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    img.save(out_path, "JPEG", quality=85)
+    return True
+
+
+def write_interactive_timeseries(file_to_date: dict[str, str],
+                                 gt_by_file: dict[str, list],
+                                 pred_by_file: dict[str, list],
+                                 fname_to_image_path: dict[str, str],
+                                 out_dir: Path,
+                                 cls_min_confidence: float,
+                                 suffix: str = "_committed") -> None:
+    """Generate an interactive HTML timeseries with hover-preview thumbnails.
+
+    Each cell shows whether the predictions found that species on that day
+    (within the supplied pred_by_file). On hover, a representative thumbnail
+    (highest cls_score in that cell, tight-scale preferred) is loaded into a
+    fixed preview pane. Thumbnails live in a sibling folder so the HTML is
+    self-contained.
+    """
+    representative = select_representatives(pred_by_file, file_to_date)
+
+    # Compute the same date and species axes the static plot uses.
+    dates, species, gt_pres, pred_pres = build_species_timeseries(
+        file_to_date, gt_by_file, pred_by_file
+    )
+    if not dates or not species:
+        log.warning("no data for interactive timeseries (suffix=%r)", suffix)
+        return
+
+    # Dense calendar (every day in the range, including gaps).
+    from datetime import date as _date, timedelta
+    try:
+        d_min = min(_date.fromisoformat(d) for d in dates)
+        d_max = max(_date.fromisoformat(d) for d in dates)
+    except ValueError:
+        log.warning("non-ISO date_captured values; skipping interactive HTML")
+        return
+    n_days = (d_max - d_min).days + 1
+    full_dates = [(d_min + timedelta(days=i)).isoformat() for i in range(n_days)]
+
+    thumb_dir = out_dir / f"timeseries_thumbs{suffix}"
+    thumb_dir.mkdir(parents=True, exist_ok=True)
+
+    # Render representative thumbnails. One per (date, species) with data.
+    n_thumbs = 0
+    cell_meta: dict[tuple[str, str], dict] = {}
+    for (d, s), info in representative.items():
+        fname = info["fname"]
+        image_path = fname_to_image_path.get(fname)
+        if not image_path:
+            continue
+        thumb_name = f"{_safe(d)}__{_safe(s)}.jpg"
+        thumb_path = thumb_dir / thumb_name
+        if not thumb_path.exists():
+            ok = render_thumbnail(image_path, info["box_xyxy"], thumb_path)
+            if not ok:
+                continue
+        n_thumbs += 1
+        cell_meta[(d, s)] = {
+            "thumb":     f"timeseries_thumbs{suffix}/{thumb_name}",
+            "fname":     fname,
+            "score":     info["cls_score"],
+            "scale":     info["scale"],
+            "fine_label": info["fine_label"],
+            "merged":    info["merged_label"],
+        }
+    log.info("rendered %d representative thumbnails into %s",
+             n_thumbs, thumb_dir)
+
+    # Build the SVG heatmap. Columns = days, rows = species. Each filled
+    # cell carries its metadata as data-attributes for JS hover.
+    cell_w = 8        # px per day
+    cell_h = 22       # px per species row
+    left_pad = 180    # space for species labels
+    top_pad = 60      # space for date labels and title
+    bottom_pad = 80
+    n_sp = len(species)
+    svg_w = left_pad + n_days * cell_w + 20
+    svg_h = top_pad + n_sp * cell_h + bottom_pad
+
+    # Heuristic step for date axis labels (~1 label per ~7 days, min 6).
+    step = max(1, n_days // max(6, n_days // 7))
+
+    svg_parts = [
+        f'<svg viewBox="0 0 {svg_w} {svg_h}" '
+        f'xmlns="http://www.w3.org/2000/svg" id="heatmap" '
+        f'preserveAspectRatio="xMinYMin meet">',
+        '<style>'
+        '.cell{stroke:#eee;stroke-width:0.5;cursor:pointer}'
+        '.cell.gt{fill:#1f77b4}'
+        '.cell.pred{fill:#d62728}'
+        '.cell.both{fill:#7e3a8a}'
+        '.cell.empty{fill:white}'
+        '.cell:hover{stroke:#000;stroke-width:1.5}'
+        '.label{font-family:sans-serif;font-size:11px;fill:#333}'
+        '.date{font-family:sans-serif;font-size:9px;fill:#666}'
+        '</style>',
+    ]
+
+    # Species labels (y axis)
+    for i, sp in enumerate(species):
+        y = top_pad + i * cell_h + cell_h / 2 + 4
+        svg_parts.append(
+            f'<text class="label" x="{left_pad - 6}" y="{y}" '
+            f'text-anchor="end">{sp}</text>'
+        )
+
+    # Date labels (x axis) — place rotated 45° at the bottom.
+    for j in range(0, n_days, step):
+        x = left_pad + j * cell_w + cell_w / 2
+        y = top_pad + n_sp * cell_h + 14
+        svg_parts.append(
+            f'<text class="date" x="{x}" y="{y}" '
+            f'transform="rotate(45 {x} {y})">{full_dates[j]}</text>'
+        )
+
+    # Cells
+    for i, sp in enumerate(species):
+        for j, d in enumerate(full_dates):
+            x = left_pad + j * cell_w
+            y = top_pad + i * cell_h
+            has_gt   = bool(gt_pres.get((d, sp), 0))
+            has_pred = bool(pred_pres.get((d, sp), 0))
+            if has_gt and has_pred:
+                klass = "cell both"
+            elif has_pred:
+                klass = "cell pred"
+            elif has_gt:
+                klass = "cell gt"
+            else:
+                klass = "cell empty"
+
+            attrs = [f'class="{klass}"',
+                     f'x="{x}"', f'y="{y}"',
+                     f'width="{cell_w}"', f'height="{cell_h}"',
+                     f'data-date="{d}"', f'data-species="{sp}"',
+                     f'data-gt="{int(gt_pres.get((d, sp), 0))}"',
+                     f'data-pred="{int(pred_pres.get((d, sp), 0))}"']
+            meta = cell_meta.get((d, sp))
+            if meta:
+                attrs += [
+                    f'data-thumb="{meta["thumb"]}"',
+                    f'data-fname="{meta["fname"]}"',
+                    f'data-score="{meta["score"]:.2f}"',
+                    f'data-scale="{meta["scale"]}"',
+                    f'data-fine="{meta["fine_label"]}"',
+                ]
+            svg_parts.append('<rect ' + ' '.join(attrs) + ' />')
+
+    # Legend
+    legend_y = svg_h - 25
+    svg_parts.append(
+        f'<rect class="cell gt" x="{left_pad}" y="{legend_y}" '
+        f'width="{cell_w}" height="{cell_h - 6}" />'
+        f'<text class="label" x="{left_pad + cell_w + 6}" '
+        f'y="{legend_y + cell_h - 11}">GT only</text>'
+        f'<rect class="cell pred" x="{left_pad + 100}" y="{legend_y}" '
+        f'width="{cell_w}" height="{cell_h - 6}" />'
+        f'<text class="label" x="{left_pad + 100 + cell_w + 6}" '
+        f'y="{legend_y + cell_h - 11}">Predicted only</text>'
+        f'<rect class="cell both" x="{left_pad + 220}" y="{legend_y}" '
+        f'width="{cell_w}" height="{cell_h - 6}" />'
+        f'<text class="label" x="{left_pad + 220 + cell_w + 6}" '
+        f'y="{legend_y + cell_h - 11}">GT and predicted</text>'
+    )
+
+    svg_parts.append('</svg>')
+    svg_str = "\n".join(svg_parts)
+
+    title = ("Wytrap species presence per day — committed only "
+             f"(cls_score >= {cls_min_confidence:.2f}, quality=ok)")
+    html = f'''<!doctype html>
+<html><head><meta charset="utf-8" />
+<title>{title}</title>
+<style>
+body {{font-family:sans-serif;margin:20px;color:#222}}
+h1 {{font-size:16px;margin:0 0 10px}}
+.note {{font-size:11px;color:#666;margin-bottom:14px}}
+.layout {{display:flex;gap:24px;align-items:flex-start}}
+#heatmap-wrap {{flex:1 1 auto;overflow-x:auto;border:1px solid #ddd;
+                background:#fff;padding:8px}}
+#heatmap {{display:block;width:100%;height:auto;min-width:1000px}}
+#preview {{flex:0 0 auto;width:560px;position:sticky;top:20px}}
+#preview img {{width:100%;height:auto;border:1px solid #ccc;background:#f8f8f8}}
+#caption {{font-size:12px;margin-top:8px;line-height:1.4}}
+#caption .meta {{color:#666;font-size:11px;margin-top:2px}}
+.placeholder {{color:#999;font-style:italic;font-size:12px;text-align:center;
+               padding:60px 0;border:1px dashed #ccc}}
+</style></head>
+<body>
+<h1>{title}</h1>
+<div class="note">
+Hover any cell to see a representative image with bounding box.
+Cell color: <b style="color:#1f77b4">blue</b>=GT only ·
+<b style="color:#d62728">red</b>=predicted only ·
+<b style="color:#7e3a8a">purple</b>=both.
+Empty cells have neither.
+</div>
+
+<div class="layout">
+  <div id="heatmap-wrap">
+    {svg_str}
+  </div>
+  <div id="preview">
+    <div id="preview-img-wrap"><div class="placeholder">
+      hover a cell with a prediction to see its image
+    </div></div>
+    <div id="caption"></div>
+  </div>
+</div>
+
+<script>
+const wrap = document.getElementById('preview-img-wrap');
+const cap = document.getElementById('caption');
+document.querySelectorAll('rect.cell').forEach(el => {{
+  el.addEventListener('mouseenter', () => {{
+    const date = el.getAttribute('data-date');
+    const sp = el.getAttribute('data-species');
+    const gt = el.getAttribute('data-gt');
+    const pred = el.getAttribute('data-pred');
+    const thumb = el.getAttribute('data-thumb');
+    const fname = el.getAttribute('data-fname');
+    const score = el.getAttribute('data-score');
+    const scale = el.getAttribute('data-scale');
+    const fine = el.getAttribute('data-fine');
+    if (thumb) {{
+      wrap.innerHTML = `<img src="${{thumb}}" alt="${{fname}}" />`;
+      cap.innerHTML =
+        `<b>${{sp}}</b> on ${{date}}<br/>` +
+        `<span class="meta">${{fname}} · pred=${{fine}} · ` +
+        `score=${{score}} · scale=${{scale}} · ` +
+        `gt_count=${{gt}} pred_count=${{pred}}</span>`;
+    }} else if (gt !== '0' || pred !== '0') {{
+      wrap.innerHTML = '<div class="placeholder">no thumbnail available ' +
+                       '(check eval.log for failures)</div>';
+      cap.innerHTML =
+        `<b>${{sp}}</b> on ${{date}} · gt=${{gt}} pred=${{pred}}`;
+    }} else {{
+      wrap.innerHTML = '<div class="placeholder">no detections this day</div>';
+      cap.innerHTML = `<b>${{sp}}</b> on ${{date}} · empty`;
+    }}
+  }});
+}});
+</script>
+</body></html>
+'''
+
+    html_path = out_dir / f"species_timeseries{suffix}.html"
+    with open(html_path, "w") as f:
+        f.write(html)
+    log.info("wrote %s", html_path)
+
+
 def main() -> int:
     args = parse_args()
 
@@ -599,7 +933,7 @@ def main() -> int:
              len(gt_by_file), sum(len(v) for v in gt_by_file.values()))
 
     gt_files = set(gt_by_file.keys())
-    pred_by_file, quality_counts, scale_counts = load_pred(
+    pred_by_file, quality_counts, scale_counts, fname_to_image_path = load_pred(
         pred_dir, gt_files=gt_files, merges=merges,
         quality_filter=quality_filter,
     )
@@ -723,6 +1057,14 @@ def main() -> int:
                              out_dir, suffix="_all",
                              title_qualifier=(
                                  "Predictions: all detections (no confidence threshold)"))
+
+    # Interactive HTML version (committed only, ok-quality only) with
+    # hover-preview thumbnails. The static PNGs above stay for quick
+    # at-a-glance review; the HTML is for drilling into individual cells.
+    write_interactive_timeseries(file_to_date, gt_by_file, pred_committed,
+                                 fname_to_image_path, out_dir,
+                                 cls_min_confidence=args.cls_min_confidence,
+                                 suffix="_committed")
     return 0
 
 
