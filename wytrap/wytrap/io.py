@@ -19,6 +19,7 @@ class DetectionRecord:
     quality_reason: str = ""       # short detail when quality != "ok"
     scale: str = "tight"           # "tight" | "padded" | "full" — which scale won
     scale_scores: dict = field(default_factory=dict)  # per-scale top-1 scores
+    cross_scale_agree: bool = True # all scales' top-1 == winning scale's top-1
 
 
 @dataclass
@@ -54,6 +55,7 @@ def load_record(path: str | Path) -> ImageRecord:
         det.setdefault("quality_reason", "")
         det.setdefault("scale", "tight")
         det.setdefault("scale_scores", {})
+        det.setdefault("cross_scale_agree", True)
         # topk migrated from [[name, score], ...] to [{...}, ...].
         topk = det.get("topk", [])
         if topk and isinstance(topk[0], (list, tuple)):

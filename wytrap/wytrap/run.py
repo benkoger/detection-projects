@@ -238,11 +238,12 @@ def process_image(image_path: str | Path,
     # Whole-image classification: computed once, shared across all detections.
     cls_full = classifier.classify(pil) if multiscale and tight_crops else None
 
-    by_idx: dict[int, tuple[Classification, str, dict]] = {}
+    by_idx: dict[int, tuple[Classification, str, dict, bool]] = {}
     for k, det_idx in enumerate(to_classify_idx):
         ct = cls_tight[k]
         scale_scores = {"tight": ct.score}
         winner_name, winner_cls = "tight", ct
+        agree = True
         if multiscale:
             cp = cls_padded[k]
             scale_scores["padded"] = cp.score
@@ -250,7 +251,15 @@ def process_image(image_path: str | Path,
             for name, c in (("padded", cp), ("full", cls_full)):
                 if c.score > winner_cls.score:
                     winner_name, winner_cls = name, c
-        by_idx[det_idx] = (winner_cls, winner_name, scale_scores)
+            # Cross-scale agreement: do all three scales pick the same top-1
+            # species? Disagreement is a strong signal that the high-score
+            # winner is overconfident on an uninformative crop (the
+            # 0.99-bison-called-moose pattern).
+            top1_tight  = ct.fine_label
+            top1_padded = cp.fine_label
+            top1_full   = cls_full.fine_label
+            agree = (top1_tight == top1_padded == top1_full)
+        by_idx[det_idx] = (winner_cls, winner_name, scale_scores, agree)
 
     for i, (det, (q, reason)) in enumerate(zip(detections, qualities)):
         if i not in by_idx:
@@ -269,7 +278,7 @@ def process_image(image_path: str | Path,
             ))
             continue
 
-        cls, scale_name, scale_scores = by_idx[i]
+        cls, scale_name, scale_scores, agree = by_idx[i]
         canonical = merges.get(cls.fine_label, cls.fine_label)
         record.detections.append(DetectionRecord(
             box_xyxy=list(det.box_xyxy),
@@ -284,6 +293,7 @@ def process_image(image_path: str | Path,
             quality_reason=reason,
             scale=scale_name,
             scale_scores={k: round(v, 4) for k, v in scale_scores.items()},
+            cross_scale_agree=agree,
         ))
     return record
 

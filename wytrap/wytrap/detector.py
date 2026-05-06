@@ -126,7 +126,7 @@ class Detector:
                tile: bool = True,
                tile_size: int = 480,
                overlap: float = 0.2,
-               nms_iou: float = 0.5) -> list[Detection]:
+               nms_iou: float = 0.3) -> list[Detection]:
         """Run detection on a single RGB image (H, W, 3) numpy array.
 
         With ``tile=True`` (default), uses SAHI-style sliced inference: the
@@ -192,7 +192,7 @@ class Detector:
         return self._nms(all_dets, iou_thresh=nms_iou)
 
     @staticmethod
-    def _nms(dets: list[Detection], iou_thresh: float = 0.5) -> list[Detection]:
+    def _nms(dets: list[Detection], iou_thresh: float = 0.3) -> list[Detection]:
         """Per-class greedy NMS. Keeps the highest-confidence box and
         suppresses boxes of the same label whose IoU exceeds the threshold."""
         if not dets:

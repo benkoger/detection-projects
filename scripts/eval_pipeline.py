@@ -80,6 +80,18 @@ def parse_args() -> argparse.Namespace:
                         "counts as 'abstained' rather than committed. "
                         "Classification metrics report only on committed; "
                         "abstention is its own line item. Default 0.30.")
+    p.add_argument("--date-source", default="auto",
+                   choices=["auto", "exif", "coco"],
+                   help="Where dates come from for the timeseries. "
+                        "'exif' (preferred) reads file_to_date.json (built "
+                        "by scripts/build_exif_dates.py) — accurate when "
+                        "COCO date_captured is wrong. 'coco' uses the "
+                        "date_captured field. 'auto' (default) prefers EXIF "
+                        "if file_to_date.json is found next to --pred, else "
+                        "falls back to COCO.")
+    p.add_argument("--exif-dates",
+                   help="Explicit path to file_to_date.json. Overrides the "
+                        "auto-discovery next to --pred.")
     return p.parse_args()
 
 
@@ -189,7 +201,8 @@ def load_pred(pred_dir: Path,
                     for t in (det.topk or [])]
             pred_by_file[fname].append((det.box_xyxy, top1, topk,
                                         float(det.cls_score), det.scale,
-                                        det.fine_label))
+                                        det.fine_label,
+                                        bool(det.cross_scale_agree)))
     log.info("scanned %d pipeline JSONs, matched %d to GT filenames",
              n_records_seen, n_records_matched)
     return pred_by_file, quality_counts, scale_counts, fname_to_image_path
@@ -233,7 +246,7 @@ def evaluate(gt_by_file: dict[str, list],
     for fname, gts in gt_by_file.items():
         preds = pred_by_file.get(fname, [])
         gt_used = [False] * len(gts)
-        for pbox, plabel, ptopk, cls_score, scale, _fine in preds:
+        for pbox, plabel, ptopk, cls_score, scale, _fine, _agree in preds:
             best_iou, best_j = 0.0, -1
             for j, (gbox, _) in enumerate(gts):
                 if gt_used[j]:
@@ -591,7 +604,8 @@ def select_representatives(pred_by_file: dict[str, list],
         date = file_to_date.get(fname, "")
         if not date:
             continue
-        for box, merged_label, _topk, cls_score, scale, fine_label in preds:
+        for entry in preds:
+            box, merged_label, _topk, cls_score, scale, fine_label = entry[:6]
             by_cell[(date, merged_label)].append({
                 "fname":         fname,
                 "box_xyxy":      box,
@@ -818,8 +832,13 @@ def write_interactive_timeseries(file_to_date: dict[str, str],
     svg_parts.append('</svg>')
     svg_str = "\n".join(svg_parts)
 
-    title = ("Wytrap species presence per day — committed only "
-             f"(cls_score >= {cls_min_confidence:.2f}, quality=ok)")
+    if suffix == "_strict":
+        view_label = (f"strict (cls_score >= {cls_min_confidence:.2f}, "
+                      f"quality=ok, scale=tight, cross-scale agree)")
+    else:
+        view_label = (f"committed (cls_score >= {cls_min_confidence:.2f}, "
+                      f"quality=ok)")
+    title = f"Wytrap species presence per day — {view_label}"
     html = f'''<!doctype html>
 <html><head><meta charset="utf-8" />
 <title>{title}</title>
@@ -902,6 +921,203 @@ document.querySelectorAll('rect.cell').forEach(el => {{
     log.info("wrote %s", html_path)
 
 
+def calibration_analysis(gt_by_file: dict[str, list],
+                         pred_by_file: dict[str, list],
+                         iou_thresh: float) -> dict:
+    """Treat matched detections as a labeled mini-dataset and learn what
+    inference-time parameter changes would improve precision/recall.
+
+    Computes:
+      - det_score distribution: matched-correct, matched-wrong, unmatched
+      - cls_score distribution: matched-correct vs matched-wrong
+      - scale distribution:     matched vs unmatched
+      - quality distribution:   matched vs unmatched (proxy via prefilter)
+      - cross_scale_agree:      effect on accuracy
+
+    Then suggests per-knob recommendations (det_threshold, cls_min_confidence,
+    whether to drop a scale, whether to require cross_scale_agree).
+    """
+    # Bucket every prediction.
+    matched_correct: list[dict] = []
+    matched_wrong:   list[dict] = []
+    unmatched:       list[dict] = []
+
+    for fname, gts in gt_by_file.items():
+        preds = pred_by_file.get(fname, [])
+        gt_used = [False] * len(gts)
+        # We don't have det_score in the pred tuple — but cls_score is enough
+        # for the BioCLIP side; det_score we can recover from the original
+        # JSON via a second pass if needed. For now, focus on cls_score.
+        for entry in preds:
+            box, plabel, _topk, cls_score, scale, _fine = entry[:6]
+            agree = entry[6] if len(entry) > 6 else True
+            best_iou, best_j = 0.0, -1
+            for j, (gbox, _) in enumerate(gts):
+                if gt_used[j]:
+                    continue
+                v = iou(box, gbox)
+                if v > best_iou:
+                    best_iou, best_j = v, j
+            row = {"cls_score": cls_score, "scale": scale,
+                   "agree": agree, "plabel": plabel}
+            if best_iou >= iou_thresh:
+                gt_used[best_j] = True
+                glabel = gts[best_j][1]
+                if plabel == glabel:
+                    matched_correct.append(row)
+                else:
+                    matched_wrong.append(row)
+            else:
+                unmatched.append(row)
+
+    n_mc, n_mw, n_um = len(matched_correct), len(matched_wrong), len(unmatched)
+    log.info("===== calibration: matched-correct / matched-wrong / unmatched =====")
+    log.info("  bucket sizes: %d / %d / %d", n_mc, n_mw, n_um)
+
+    def pct(rows, pred):
+        if not rows: return 0.0
+        return sum(1 for r in rows if pred(r)) / len(rows)
+
+    # cls_score thresholds: at each cutoff, what's the fraction of each
+    # bucket that passes? Recall over matched-correct vs FP rate over wrong+unmatched.
+    log.info("  cls_score gates (fraction passing at each cutoff):")
+    log.info(f"    {'cut':>4} {'mc':>6} {'mw':>6} {'um':>6}")
+    for cut in (0.20, 0.30, 0.40, 0.50, 0.60, 0.70, 0.80):
+        f_mc = pct(matched_correct, lambda r: r["cls_score"] >= cut)
+        f_mw = pct(matched_wrong,   lambda r: r["cls_score"] >= cut)
+        f_um = pct(unmatched,       lambda r: r["cls_score"] >= cut)
+        log.info(f"    {cut:>4.2f} {f_mc:>6.1%} {f_mw:>6.1%} {f_um:>6.1%}")
+
+    # Scale distribution
+    log.info("  scale distribution by bucket (fraction of bucket):")
+    log.info(f"    {'scale':<8} {'mc':>6} {'mw':>6} {'um':>6}")
+    for s in ("tight", "padded", "full"):
+        f_mc = pct(matched_correct, lambda r, s=s: r["scale"] == s)
+        f_mw = pct(matched_wrong,   lambda r, s=s: r["scale"] == s)
+        f_um = pct(unmatched,       lambda r, s=s: r["scale"] == s)
+        log.info(f"    {s:<8} {f_mc:>6.1%} {f_mw:>6.1%} {f_um:>6.1%}")
+
+    # cross-scale agreement
+    f_mc_agree = pct(matched_correct, lambda r: r["agree"])
+    f_mw_agree = pct(matched_wrong,   lambda r: r["agree"])
+    f_um_agree = pct(unmatched,       lambda r: r["agree"])
+    log.info("  cross_scale_agree: mc=%.1f%% mw=%.1f%% um=%.1f%%",
+             100 * f_mc_agree, 100 * f_mw_agree, 100 * f_um_agree)
+
+    # Recommendations: pick the cls_score where matched-correct retention is
+    # >= 0.90 but unmatched retention is minimised. Heuristic.
+    best_cut = 0.30
+    best_score = -1.0
+    for cut in (0.20, 0.25, 0.30, 0.35, 0.40, 0.45, 0.50, 0.55, 0.60, 0.65, 0.70):
+        f_mc = pct(matched_correct, lambda r, c=cut: r["cls_score"] >= c)
+        f_um = pct(unmatched,       lambda r, c=cut: r["cls_score"] >= c)
+        # Maximise matched recall - unmatched FP rate, with a floor of 90%
+        # matched recall (don't sacrifice too much).
+        if f_mc < 0.90:
+            continue
+        s = f_mc - f_um
+        if s > best_score:
+            best_score, best_cut = s, cut
+
+    if f_mc_agree > f_mw_agree + 0.10 and f_mc_agree > f_um_agree + 0.10:
+        agree_recommendation = "yes — matched-correct agrees noticeably more often than wrong/unmatched"
+    else:
+        agree_recommendation = "no clear benefit — leave optional"
+
+    # Find the worst-performing scale (fraction of bucket that's unmatched).
+    scale_um = {
+        s: sum(1 for r in unmatched if r["scale"] == s) / max(n_um, 1)
+        for s in ("tight", "padded", "full")
+    }
+    worst_scale = max(scale_um, key=lambda k: scale_um[k])
+
+    log.info("===== calibration recommendations =====")
+    log.info("  cls_min_confidence: try %.2f  (keeps >=90%% mc, drops most um)", best_cut)
+    log.info("  cross_scale_agree filter: %s", agree_recommendation)
+    log.info("  worst scale by FP share: %s (%.1f%% of unmatched)",
+             worst_scale, 100 * scale_um[worst_scale])
+
+    return {
+        "bucket_sizes": {"matched_correct": n_mc,
+                         "matched_wrong":   n_mw,
+                         "unmatched":       n_um},
+        "recommendation": {
+            "cls_min_confidence":      best_cut,
+            "cross_scale_agree_helps": agree_recommendation,
+            "worst_scale_by_fp":       worst_scale,
+        },
+        "scale_distribution": {
+            s: {
+                "matched_correct": sum(1 for r in matched_correct if r["scale"] == s),
+                "matched_wrong":   sum(1 for r in matched_wrong if r["scale"] == s),
+                "unmatched":       sum(1 for r in unmatched if r["scale"] == s),
+            } for s in ("tight", "padded", "full")
+        },
+        "cross_scale_agree_rate": {
+            "matched_correct": f_mc_agree,
+            "matched_wrong":   f_mw_agree,
+            "unmatched":       f_um_agree,
+        },
+    }
+
+
+def resolve_dates(coco_dates: dict[str, str],
+                  pred_dir: Path,
+                  source: str = "auto",
+                  exif_path: str | None = None) -> dict[str, str]:
+    """Decide whether to use EXIF-derived dates or COCO date_captured.
+
+    `coco_dates` is the {fname: date} map built from COCO. EXIF dates live
+    in `file_to_date.json` produced by scripts/build_exif_dates.py.
+
+    Modes:
+        'exif': require EXIF JSON, error otherwise.
+        'coco': always use COCO dates.
+        'auto': prefer EXIF JSON if found, else COCO.
+    """
+    if source == "coco":
+        log.info("date source: COCO date_captured (per --date-source coco)")
+        return coco_dates
+
+    candidate_paths = []
+    if exif_path:
+        candidate_paths.append(Path(exif_path))
+    candidate_paths += [
+        pred_dir / "file_to_date.json",
+        pred_dir.parent / "file_to_date.json",
+    ]
+    found = next((p for p in candidate_paths if p.exists()), None)
+
+    if source == "exif" and not found:
+        raise FileNotFoundError(
+            f"--date-source exif but no file_to_date.json found at "
+            f"{[str(p) for p in candidate_paths]}. Build one with "
+            f"scripts/build_exif_dates.py.")
+    if not found:
+        log.info("date source: COCO date_captured (no EXIF JSON found)")
+        return coco_dates
+
+    with open(found) as f:
+        exif_dates = json.load(f)
+    log.info("date source: EXIF (%s, %d entries)", found, len(exif_dates))
+
+    # Combine: EXIF dates take precedence; COCO fills any gaps.
+    combined = dict(coco_dates)  # start with COCO as fallback
+    n_overridden = n_added = 0
+    for fname, date in exif_dates.items():
+        if not date:  # empty string means EXIF parse failed
+            continue
+        if fname in combined:
+            if combined[fname] != date:
+                n_overridden += 1
+        else:
+            n_added += 1
+        combined[fname] = date
+    log.info("EXIF dates: overrode %d COCO entries, added %d new entries",
+             n_overridden, n_added)
+    return combined
+
+
 def main() -> int:
     args = parse_args()
 
@@ -929,6 +1145,9 @@ def main() -> int:
     log.info("commit threshold: cls_score >= %.2f", args.cls_min_confidence)
 
     gt_by_file, file_to_date = load_gt(Path(args.gt), merges=merges)
+    file_to_date = resolve_dates(file_to_date, pred_dir,
+                                 source=args.date_source,
+                                 exif_path=args.exif_dates)
     log.info("loaded %d GT images, %d boxes",
              len(gt_by_file), sum(len(v) for v in gt_by_file.values()))
 
@@ -1030,13 +1249,42 @@ def main() -> int:
         json.dump(metrics_all, f, indent=2)
     log.info("wrote %s", metrics_all_path)
 
+    # Calibration: what do the matched detections tell us about the right
+    # inference-time knobs? Writes calibration_analysis.json plus a log block.
+    calibration = calibration_analysis(gt_by_file, pred_by_file,
+                                       iou_thresh=args.iou)
+    cal_path = out_dir / "calibration_analysis.json"
+    with open(cal_path, "w") as f:
+        json.dump(calibration, f, indent=2)
+    log.info("wrote %s", cal_path)
+
     # Pred-by-file filtered to committed-only for the timeseries.
     pred_committed: dict[str, list] = defaultdict(list)
+    # "Strict" view for the interactive HTML: committed AND scale=='tight'
+    # AND cross_scale_agree. Catches the 0.99-bison-called-moose pattern
+    # where a single uninformative crop confidently disagrees with the
+    # padded/full views.
+    pred_strict: dict[str, list] = defaultdict(list)
+    n_dropped_disagree = n_dropped_nontight = 0
     for fname, preds in pred_by_file.items():
         for entry in preds:
             cls_score = entry[3]
-            if cls_score >= args.cls_min_confidence:
-                pred_committed[fname].append(entry)
+            scale = entry[4]
+            agree = entry[6] if len(entry) > 6 else True
+            if cls_score < args.cls_min_confidence:
+                continue
+            pred_committed[fname].append(entry)
+            if scale != "tight":
+                n_dropped_nontight += 1
+                continue
+            if not agree:
+                n_dropped_disagree += 1
+                continue
+            pred_strict[fname].append(entry)
+    log.info("strict timeseries view: kept %d preds; dropped %d non-tight, "
+             "%d cross-scale-disagree",
+             sum(len(v) for v in pred_strict.values()),
+             n_dropped_nontight, n_dropped_disagree)
 
     threshold_str = f"cls_score >= {args.cls_min_confidence:.2f}"
     write_confusion(metrics, out_dir,
@@ -1058,13 +1306,19 @@ def main() -> int:
                              title_qualifier=(
                                  "Predictions: all detections (no confidence threshold)"))
 
-    # Interactive HTML version (committed only, ok-quality only) with
-    # hover-preview thumbnails. The static PNGs above stay for quick
-    # at-a-glance review; the HTML is for drilling into individual cells.
+    # Interactive HTML version. Two flavors:
+    #   _committed: ok-quality + cls_score >= threshold.
+    #   _strict:    additionally requires scale=='tight' + cross_scale_agree.
+    # Strict is the cleanest visual confirmation; committed is more permissive
+    # so you can see what's lurking just below the strict bar.
     write_interactive_timeseries(file_to_date, gt_by_file, pred_committed,
                                  fname_to_image_path, out_dir,
                                  cls_min_confidence=args.cls_min_confidence,
                                  suffix="_committed")
+    write_interactive_timeseries(file_to_date, gt_by_file, pred_strict,
+                                 fname_to_image_path, out_dir,
+                                 cls_min_confidence=args.cls_min_confidence,
+                                 suffix="_strict")
     return 0
 
 
