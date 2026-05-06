@@ -53,7 +53,7 @@ if [[ "${SKIP_BAD:-0}" == "1" ]]; then
 fi
 
 # Toggle --no-tile via NO_TILE=1.
-NO_TILE_FLAG=""
+NO_TILE_FLAG="1"
 if [[ "${NO_TILE:-0}" == "1" ]]; then
     NO_TILE_FLAG="--no-tile"
 fi
