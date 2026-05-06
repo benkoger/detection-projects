@@ -81,15 +81,15 @@ def parse_args() -> argparse.Namespace:
                         "Classification metrics report only on committed; "
                         "abstention is its own line item. Default 0.30.")
     p.add_argument("--date-source", default="auto",
-                   choices=["auto", "exif", "coco"],
+                   choices=["auto", "ocr", "coco"],
                    help="Where dates come from for the timeseries. "
-                        "'exif' (preferred) reads file_to_date.json (built "
-                        "by scripts/build_exif_dates.py) — accurate when "
-                        "COCO date_captured is wrong. 'coco' uses the "
-                        "date_captured field. 'auto' (default) prefers EXIF "
-                        "if file_to_date.json is found next to --pred, else "
-                        "falls back to COCO.")
-    p.add_argument("--exif-dates",
+                        "'ocr' (preferred) reads file_to_date.json (built "
+                        "by scripts/ocr_burnin_dates.py) — accurate when "
+                        "COCO date_captured is wrong / EXIF was stripped. "
+                        "'coco' uses the date_captured field. 'auto' "
+                        "(default) prefers the OCR JSON if found next to "
+                        "--pred, else falls back to COCO.")
+    p.add_argument("--ocr-dates",
                    help="Explicit path to file_to_date.json. Overrides the "
                         "auto-discovery next to --pred.")
     return p.parse_args()
@@ -1064,48 +1064,49 @@ def calibration_analysis(gt_by_file: dict[str, list],
 def resolve_dates(coco_dates: dict[str, str],
                   pred_dir: Path,
                   source: str = "auto",
-                  exif_path: str | None = None) -> dict[str, str]:
-    """Decide whether to use EXIF-derived dates or COCO date_captured.
+                  ocr_path: str | None = None) -> dict[str, str]:
+    """Decide whether to use OCR-derived dates or COCO date_captured.
 
-    `coco_dates` is the {fname: date} map built from COCO. EXIF dates live
-    in `file_to_date.json` produced by scripts/build_exif_dates.py.
+    `coco_dates` is the {fname: date} map built from COCO. OCR dates live in
+    `file_to_date.json` produced by scripts/ocr_burnin_dates.py (parses the
+    burned-in timestamp from the JPEG's top/bottom strips).
 
     Modes:
-        'exif': require EXIF JSON, error otherwise.
+        'ocr':  require the OCR JSON, error otherwise.
         'coco': always use COCO dates.
-        'auto': prefer EXIF JSON if found, else COCO.
+        'auto': prefer the OCR JSON if found, else COCO.
     """
     if source == "coco":
         log.info("date source: COCO date_captured (per --date-source coco)")
         return coco_dates
 
     candidate_paths = []
-    if exif_path:
-        candidate_paths.append(Path(exif_path))
+    if ocr_path:
+        candidate_paths.append(Path(ocr_path))
     candidate_paths += [
         pred_dir / "file_to_date.json",
         pred_dir.parent / "file_to_date.json",
     ]
     found = next((p for p in candidate_paths if p.exists()), None)
 
-    if source == "exif" and not found:
+    if source == "ocr" and not found:
         raise FileNotFoundError(
-            f"--date-source exif but no file_to_date.json found at "
+            f"--date-source ocr but no file_to_date.json found at "
             f"{[str(p) for p in candidate_paths]}. Build one with "
-            f"scripts/build_exif_dates.py.")
+            f"scripts/ocr_burnin_dates.py.")
     if not found:
-        log.info("date source: COCO date_captured (no EXIF JSON found)")
+        log.info("date source: COCO date_captured (no OCR JSON found)")
         return coco_dates
 
     with open(found) as f:
-        exif_dates = json.load(f)
-    log.info("date source: EXIF (%s, %d entries)", found, len(exif_dates))
+        ocr_dates = json.load(f)
+    log.info("date source: OCR (%s, %d entries)", found, len(ocr_dates))
 
-    # Combine: EXIF dates take precedence; COCO fills any gaps.
+    # Combine: OCR dates take precedence; COCO fills any gaps.
     combined = dict(coco_dates)  # start with COCO as fallback
     n_overridden = n_added = 0
-    for fname, date in exif_dates.items():
-        if not date:  # empty string means EXIF parse failed
+    for fname, date in ocr_dates.items():
+        if not date:  # empty string means OCR didn't find a date
             continue
         if fname in combined:
             if combined[fname] != date:
@@ -1113,7 +1114,7 @@ def resolve_dates(coco_dates: dict[str, str],
         else:
             n_added += 1
         combined[fname] = date
-    log.info("EXIF dates: overrode %d COCO entries, added %d new entries",
+    log.info("OCR dates: overrode %d COCO entries, added %d new entries",
              n_overridden, n_added)
     return combined
 
@@ -1147,7 +1148,7 @@ def main() -> int:
     gt_by_file, file_to_date = load_gt(Path(args.gt), merges=merges)
     file_to_date = resolve_dates(file_to_date, pred_dir,
                                  source=args.date_source,
-                                 exif_path=args.exif_dates)
+                                 ocr_path=args.ocr_dates)
     log.info("loaded %d GT images, %d boxes",
              len(gt_by_file), sum(len(v) for v in gt_by_file.values()))
 
