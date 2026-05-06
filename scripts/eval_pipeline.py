@@ -45,7 +45,9 @@ def setup_logging(log_file: Path | None, level: int = logging.INFO) -> None:
     handlers: list[logging.Handler] = [logging.StreamHandler(sys.stdout)]
     if log_file is not None:
         log_file.parent.mkdir(parents=True, exist_ok=True)
-        handlers.append(logging.FileHandler(log_file))
+        # mode='w' so each eval run starts a fresh log instead of
+        # accumulating across re-runs.
+        handlers.append(logging.FileHandler(log_file, mode="w"))
     logging.basicConfig(level=level, format=fmt, handlers=handlers, force=True)
 
 
@@ -728,7 +730,15 @@ def write_interactive_timeseries(file_to_date: dict[str, str],
     n_days = (d_max - d_min).days + 1
     full_dates = [(d_min + timedelta(days=i)).isoformat() for i in range(n_days)]
 
+    # Wipe and recreate so we never serve stale thumbnails: the
+    # representative for a (date, species) cell may have changed since the
+    # last run (different filter, different best-scoring detection), but
+    # the filename is keyed only on (date, species), so without wiping
+    # we'd reuse an old box-on-image that no longer matches.
     thumb_dir = out_dir / f"timeseries_thumbs{suffix}"
+    if thumb_dir.exists():
+        import shutil
+        shutil.rmtree(thumb_dir)
     thumb_dir.mkdir(parents=True, exist_ok=True)
 
     # Render representative thumbnails. One per (date, species) with data.
