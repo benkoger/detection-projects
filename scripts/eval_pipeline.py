@@ -80,6 +80,12 @@ def parse_args() -> argparse.Namespace:
                         "counts as 'abstained' rather than committed. "
                         "Classification metrics report only on committed; "
                         "abstention is its own line item. Default 0.30.")
+    p.add_argument("--no-cross-scale-agree", action="store_true",
+                   help="Don't require cross-scale agreement for committed "
+                        "predictions. By default a detection only commits "
+                        "when its three scales all picked the same top-1 "
+                        "species — without this filter ~90%% of FPs would "
+                        "slip through. Disable for diagnostic comparisons.")
     p.add_argument("--date-source", default="auto",
                    choices=["auto", "ocr", "coco"],
                    help="Where dates come from for the timeseries. "
@@ -212,17 +218,25 @@ def evaluate(gt_by_file: dict[str, list],
              pred_by_file: dict[str, list],
              iou_thresh: float,
              top_ks: list[int],
-             cls_min_confidence: float = 0.30) -> dict:
+             cls_min_confidence: float = 0.30,
+             require_cross_scale_agree: bool = True) -> dict:
     """Evaluate predictions vs GT.
 
     Detection P/R is computed over all matched/unmatched boxes regardless of
     classification confidence. Classification metrics (top-1/3/5 accuracy,
     confusion matrix) are computed only on **committed** matches:
-    cls_score >= cls_min_confidence. Matched-but-abstained predictions are
-    counted in `abstained` for separate reporting.
 
-    Each `pred_by_file` entry is a 5-tuple
-    (xyxy_box, top1_label, topk_labels, cls_score, scale).
+        cls_score >= cls_min_confidence
+        AND (cross_scale_agree OR not require_cross_scale_agree)
+
+    Cross-scale agreement is a strong noise filter — on the tiny eval, FPs
+    agree across scales only ~10% of the time vs ~78% for true positives,
+    so requiring agreement materially improves precision at moderate cost
+    to committed recall.
+
+    Each `pred_by_file` entry is a 7-tuple
+    (xyxy_box, top1_label, topk_labels, cls_score, scale,
+     fine_label, cross_scale_agree).
     """
     tp = fp = fn = 0
     matched = 0
@@ -240,13 +254,13 @@ def evaluate(gt_by_file: dict[str, list],
     # in the top-k — these are recoverable if the threshold is lowered.
     abstained_with_gt_in_topk = 0
     # Raw matched-detection records for the threshold sweep.
-    matched_records: list[tuple[float, str, str, list, str]] = []
+    matched_records: list[tuple[float, str, str, list, str, bool]] = []
     max_k = max(top_ks)
 
     for fname, gts in gt_by_file.items():
         preds = pred_by_file.get(fname, [])
         gt_used = [False] * len(gts)
-        for pbox, plabel, ptopk, cls_score, scale, _fine, _agree in preds:
+        for pbox, plabel, ptopk, cls_score, scale, _fine, agree in preds:
             best_iou, best_j = 0.0, -1
             for j, (gbox, _) in enumerate(gts):
                 if gt_used[j]:
@@ -260,8 +274,13 @@ def evaluate(gt_by_file: dict[str, list],
                 glabel = gts[best_j][1]
                 matched += 1
                 matched_per_class[glabel] += 1
-                matched_records.append((cls_score, plabel, glabel, ptopk, scale))
-                if cls_score >= cls_min_confidence:
+                matched_records.append(
+                    (cls_score, plabel, glabel, ptopk, scale, agree))
+                committed_here = (
+                    cls_score >= cls_min_confidence
+                    and (agree or not require_cross_scale_agree)
+                )
+                if committed_here:
                     committed += 1
                     confusion[glabel][plabel] += 1
                     scale_n[scale] += 1
@@ -326,15 +345,20 @@ def evaluate(gt_by_file: dict[str, list],
         }
     metrics["scale_breakdown"] = scale_breakdown
 
-    # Threshold sweep — re-bin matched_records over a fixed grid.
+    # Threshold sweep — re-bin matched_records over a fixed grid. Honors
+    # the same require_cross_scale_agree gate so the sweep reflects the
+    # current commit policy, not a hypothetical agree-disabled one.
     sweep = []
     for thresh in (0.0, 0.05, 0.10, 0.15, 0.20, 0.25, 0.30, 0.35, 0.40, 0.50, 0.60):
         cm, cc = 0, 0
-        for cls_score, plabel, glabel, ptopk, scale in matched_records:
-            if cls_score >= thresh:
-                cm += 1
-                if plabel == glabel:
-                    cc += 1
+        for cls_score, plabel, glabel, ptopk, scale, agree in matched_records:
+            if cls_score < thresh:
+                continue
+            if require_cross_scale_agree and not agree:
+                continue
+            cm += 1
+            if plabel == glabel:
+                cc += 1
         sweep.append({
             "threshold":     thresh,
             "committed":     cm,
@@ -343,6 +367,7 @@ def evaluate(gt_by_file: dict[str, list],
             "top1_acc":      (cc / cm) if cm else 0.0,
         })
     metrics["threshold_sweep"] = sweep
+    metrics["require_cross_scale_agree"] = require_cross_scale_agree
     return metrics
 
 
@@ -1166,7 +1191,8 @@ def main() -> int:
 
     metrics = evaluate(gt_by_file, pred_by_file,
                        iou_thresh=args.iou, top_ks=top_ks,
-                       cls_min_confidence=args.cls_min_confidence)
+                       cls_min_confidence=args.cls_min_confidence,
+                       require_cross_scale_agree=not args.no_cross_scale_agree)
     metrics["quality_counts"] = dict(quality_counts)
     metrics["scale_counts"]   = dict(scale_counts)
     metrics["quality_filter"] = args.quality
@@ -1189,8 +1215,11 @@ def main() -> int:
         log.info("  top-%d recovery (in top-%d but not top-1): %.3f",
                  max_k, max_k, metrics[f"top{max_k}_recovery"])
 
-    log.info("===== abstention (matched detections, threshold=%.2f) =====",
-             metrics["cls_min_confidence"])
+    agree_note = ("+ cross_scale_agree"
+                  if metrics.get("require_cross_scale_agree", True)
+                  else "no agree filter")
+    log.info("===== abstention (matched detections, threshold=%.2f, %s) =====",
+             metrics["cls_min_confidence"], agree_note)
     log.info("  matched              : %d", metrics["matched"])
     log.info("  committed            : %d  (%.0f%%)",
              metrics["committed"],
@@ -1242,7 +1271,8 @@ def main() -> int:
     log.info("Computing 'all detections' metrics pass for side-by-side comparison")
     metrics_all = evaluate(gt_by_file, pred_by_file,
                            iou_thresh=args.iou, top_ks=top_ks,
-                           cls_min_confidence=0.0)
+                           cls_min_confidence=0.0,
+                           require_cross_scale_agree=False)
     metrics_all["quality_filter"] = args.quality
     metrics_all["merge_applied"] = not args.no_merge
     metrics_all_path = out_dir / "metrics_all.json"
@@ -1260,32 +1290,38 @@ def main() -> int:
     log.info("wrote %s", cal_path)
 
     # Pred-by-file filtered to committed-only for the timeseries.
+    # Committed = cls_score >= threshold AND cross_scale_agree (matches the
+    # evaluate() definition). The agreement gate is the bigger filter — on
+    # tiny eval, FPs agree only ~10% of the time vs ~78% for TPs.
     pred_committed: dict[str, list] = defaultdict(list)
-    # "Strict" view for the interactive HTML: committed AND scale=='tight'
-    # AND cross_scale_agree. Catches the 0.99-bison-called-moose pattern
-    # where a single uninformative crop confidently disagrees with the
-    # padded/full views.
+    # "Strict" view for the interactive HTML: additionally requires
+    # scale=='tight'. Sharpest filter we have — for visual confirmation only.
     pred_strict: dict[str, list] = defaultdict(list)
-    n_dropped_disagree = n_dropped_nontight = 0
+    require_agree = not args.no_cross_scale_agree
+    n_dropped_score = n_dropped_disagree = n_dropped_nontight = 0
     for fname, preds in pred_by_file.items():
         for entry in preds:
             cls_score = entry[3]
             scale = entry[4]
             agree = entry[6] if len(entry) > 6 else True
             if cls_score < args.cls_min_confidence:
+                n_dropped_score += 1
+                continue
+            if require_agree and not agree:
+                n_dropped_disagree += 1
                 continue
             pred_committed[fname].append(entry)
             if scale != "tight":
                 n_dropped_nontight += 1
                 continue
-            if not agree:
-                n_dropped_disagree += 1
-                continue
             pred_strict[fname].append(entry)
-    log.info("strict timeseries view: kept %d preds; dropped %d non-tight, "
-             "%d cross-scale-disagree",
-             sum(len(v) for v in pred_strict.values()),
-             n_dropped_nontight, n_dropped_disagree)
+    log.info("committed timeseries: kept %d preds  "
+             "(dropped %d below cls threshold, %d cross-scale-disagree)",
+             sum(len(v) for v in pred_committed.values()),
+             n_dropped_score, n_dropped_disagree)
+    log.info("strict timeseries:    kept %d preds  "
+             "(of those that survived committed: %d non-tight)",
+             sum(len(v) for v in pred_strict.values()), n_dropped_nontight)
 
     threshold_str = f"cls_score >= {args.cls_min_confidence:.2f}"
     write_confusion(metrics, out_dir,
