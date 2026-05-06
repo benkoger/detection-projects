@@ -5,7 +5,7 @@
 #SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=32G
-#SBATCH --time=12:00:00
+#SBATCH --time=24:00:00
 #SBATCH --output=logs/wytrap-ocr-dates-%j.out
 #SBATCH --error=logs/wytrap-ocr-dates-%j.err
 
@@ -34,6 +34,8 @@ export EASYOCR_MODULE_PATH="${EASYOCR_MODULE_PATH:-/project/wildimageproc/softwa
 
 VENV="${VENV:-/project/wildimageproc/omartin9/.venv-wytrap-dev}"
 source "$VENV/bin/activate"
+IMAGES="/project/wildimageproc/software/annotations/YNP-BisonGraze/images" 
+OUT="/project/wildimageproc/omartin9/detection-projects/wytrap/output-pipeline/file_to_date.json"
 
 cd "$SLURM_SUBMIT_DIR"
 
