@@ -1072,6 +1072,69 @@ document.querySelectorAll('rect.cell').forEach(el => {{
     log.info("wrote %s", html_path)
 
 
+def image_level_eval(gt_by_file: dict[str, list],
+                     pred_by_file: dict[str, list],
+                     cls_min_confidence: float,
+                     require_cross_scale_agree: bool) -> dict:
+    """Image-level "has-animal" eval, the metric that matters for triage.
+
+    At the box level, one image with 5 background FPs counts as 5 FPs. For
+    the use case of "filter out images that contain nothing," what we care
+    about is per-image: does wytrap correctly say this image has/doesn't
+    have an animal?
+
+    Bucket each image by GT presence + committed-prediction presence:
+        TP: GT > 0  AND  committed_pred > 0   (correctly flagged as non-empty)
+        FN: GT > 0  AND  committed_pred == 0  (missed animal — bad for triage)
+        FP: GT == 0 AND  committed_pred > 0   (false alarm on empty image)
+        TN: GT == 0 AND  committed_pred == 0  (correctly empty)
+
+    Returns a metrics dict with TP/FP/FN/TN, precision, recall, F1,
+    accuracy, and the empty-image precision/recall as separate stats.
+    """
+    tp = fp = fn = tn = 0
+    # Walk every image we know about (union of GT and pred filenames).
+    all_files = set(gt_by_file) | set(pred_by_file)
+    for fname in all_files:
+        n_gt = len(gt_by_file.get(fname, []))
+        # Count committed-quality predictions for this image.
+        n_committed = 0
+        for entry in pred_by_file.get(fname, []):
+            cls_score = entry[3]
+            agree = entry[6] if len(entry) > 6 else True
+            if cls_score < cls_min_confidence:
+                continue
+            if require_cross_scale_agree and not agree:
+                continue
+            n_committed += 1
+        if n_gt > 0 and n_committed > 0:
+            tp += 1
+        elif n_gt > 0 and n_committed == 0:
+            fn += 1
+        elif n_gt == 0 and n_committed > 0:
+            fp += 1
+        else:
+            tn += 1
+
+    n = tp + fp + fn + tn
+    precision = tp / (tp + fp) if (tp + fp) else 0.0
+    recall    = tp / (tp + fn) if (tp + fn) else 0.0
+    f1 = (2 * precision * recall / (precision + recall)
+          if (precision + recall) else 0.0)
+    # "Empty-image" pair: among images we labeled empty, how many really were?
+    empty_precision = tn / (tn + fn) if (tn + fn) else 0.0
+    empty_recall    = tn / (tn + fp) if (tn + fp) else 0.0
+    return {
+        "tp": tp, "fp": fp, "fn": fn, "tn": tn, "n_images": n,
+        "has_animal_precision": precision,
+        "has_animal_recall":    recall,
+        "has_animal_f1":        f1,
+        "accuracy":             (tp + tn) / n if n else 0.0,
+        "empty_image_precision": empty_precision,
+        "empty_image_recall":    empty_recall,
+    }
+
+
 def calibration_analysis(gt_by_file: dict[str, list],
                          pred_by_file: dict[str, list],
                          iou_thresh: float) -> dict:
@@ -1326,11 +1389,35 @@ def main() -> int:
     metrics["n_gt_images"] = len(gt_by_file)
     metrics["n_gt_boxes"] = sum(len(v) for v in gt_by_file.values())
 
-    log.info("===== detection =====")
+    log.info("===== detection (per box, IoU=%.2f) =====", args.iou)
     log.info("  precision : %.3f", metrics["precision"])
     log.info("  recall    : %.3f", metrics["recall"])
     log.info("  tp/fp/fn  : %d / %d / %d",
              metrics["tp"], metrics["fp"], metrics["fn"])
+
+    img_level = image_level_eval(
+        gt_by_file, pred_by_file,
+        cls_min_confidence=args.cls_min_confidence,
+        require_cross_scale_agree=not args.no_cross_scale_agree,
+    )
+    metrics["image_level"] = img_level
+    log.info("===== image-level 'has animal' (committed: cls>=%.2f%s) =====",
+             args.cls_min_confidence,
+             "" if args.no_cross_scale_agree else " + cross_scale_agree")
+    log.info("  images           : %d", img_level["n_images"])
+    log.info("  TP (correct hit) : %d", img_level["tp"])
+    log.info("  FN (missed)      : %d", img_level["fn"])
+    log.info("  FP (false alarm) : %d", img_level["fp"])
+    log.info("  TN (empty,  ok)  : %d", img_level["tn"])
+    log.info("  has-animal P/R/F : %.3f / %.3f / %.3f",
+             img_level["has_animal_precision"],
+             img_level["has_animal_recall"],
+             img_level["has_animal_f1"])
+    log.info("  accuracy         : %.3f", img_level["accuracy"])
+    log.info("  empty-image P/R  : %.3f / %.3f   (when we say empty, "
+             "is the image really empty? / how many true-empties did we catch?)",
+             img_level["empty_image_precision"],
+             img_level["empty_image_recall"])
 
     log.info("===== classification (committed only, n=%d / matched=%d) =====",
              metrics["committed"], metrics["matched"])
