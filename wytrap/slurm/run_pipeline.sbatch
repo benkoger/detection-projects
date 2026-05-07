@@ -26,6 +26,12 @@
 #   TILE_OVERLAP=0.2                 # fractional overlap between adjacent tiles
 #   NO_MULTISCALE=1                  # disable multi-scale BioCLIP (default: on)
 #   MULTISCALE_PAD=2.0               # padded-crop expansion factor
+#   GT=/path/to/combined.json        # default: YNP-BisonGraze combined.json
+#                                    # below — set this to a different GT for
+#                                    # other deployments
+#   EVAL=0                           # set to 0 to skip eval (inference only)
+#   CLS_MIN_CONF=0.70                # eval-side confidence threshold (default 0.70)
+#   QUALITY=ok                       # eval-side quality filter (ok|all)
 #   EXTRA_ARGS="--recursive --resume"
 #
 # Persistent log: $OUTPUT_DIR/wytrap.log is written in addition to logs/wytrap-$JOBID.out,
@@ -37,6 +43,7 @@ mkdir -p logs
 # Shared model cache so each researcher doesn't re-download MegaDetector + BioCLIP weights.
 export INPUT_DIR="/project/wildimageproc/software/annotations/YNP-BisonGraze/images"
 export OUTPUT_DIR="/project/wildimageproc/omartin9/detection-projects/wytrap/output-pipeline"
+export GT="${GT:-/project/wildimageproc/software/annotations/YNP-BisonGraze/combined.json}"
 export SPECIES="ynp_testbed"
 
 VENV="${VENV:-/project/wildimageproc/omartin9/.venv-wytrap-dev}"
@@ -86,4 +93,21 @@ wytrap detect \
     $NO_MULTISCALE_FLAG \
     ${EXTRA_ARGS:-}
 
-echo "[wytrap.sbatch] complete. Persistent log: $OUTPUT_DIR/wytrap.log"
+echo "[wytrap.sbatch] inference complete. Persistent log: $OUTPUT_DIR/wytrap.log"
+
+# ===== eval (auto, unless EVAL=0) =====
+if [[ "${EVAL:-1}" == "1" && -f "$GT" ]]; then
+    echo "===== eval ====="
+    T0=$(date +%s)
+    python scripts/eval_pipeline.py \
+        --gt   "$GT" \
+        --pred "$OUTPUT_DIR" \
+        --quality "${QUALITY:-ok}" \
+        --cls-min-confidence "${CLS_MIN_CONF:-0.70}"
+    echo "[wytrap.sbatch] eval took $(($(date +%s) - T0))s. "\
+"artifacts in $OUTPUT_DIR/eval/"
+elif [[ "${EVAL:-1}" != "1" ]]; then
+    echo "[wytrap.sbatch] EVAL=0 set; skipping eval."
+else
+    echo "[wytrap.sbatch] GT not found at '$GT'; skipping eval."
+fi

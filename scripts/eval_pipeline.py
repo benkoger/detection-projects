@@ -613,41 +613,108 @@ def write_species_timeseries(file_to_date: dict[str, str],
 
 
 def select_representatives(pred_by_file: dict[str, list],
+                           gt_by_file: dict[str, list],
                            file_to_date: dict[str, str]
                            ) -> dict[tuple[str, str], dict]:
-    """For each (date, species) cell, pick the representative detection to
-    show as a thumbnail.
+    """For each (date, species) cell, pick something to thumbnail.
 
-    Selection rule: prefer scale=='tight' wins (BioCLIP committed without
-    needing padded/full crop fallback — typically cleaner box), then sort
-    by cls_score within that scale group. Falls back to any-scale max if
-    no tight prediction exists for the cell.
+    Output schema per cell:
+        {
+            "pred_fname":     <fname of best pred image, or None>
+            "pred_box":       [x1,y1,x2,y2] or None
+            "pred_score":     float or None
+            "pred_scale":     str or None
+            "pred_fine":      str or None
+            "gt_fname":       <fname of a GT image for this cell, or None>
+            "gt_box":         [x1,y1,x2,y2] or None
+            "thumb_fname":    fname of the JPEG to draw on (pref pred, else gt)
+            "boxes_to_draw":  [(box, color_rgb), ...]  used by render_thumbnail
+        }
 
-    Returns: {(date, species): {"fname", "box_xyxy", "cls_score", "scale",
-                                 "fine_label", "merged_label"}}
+    Pred selection: tight-scale wins preferred, then highest cls_score.
+    GT selection: just the first GT annotation (no real ranking criterion).
+    Boxes drawn:
+        - red on the pred image if a pred exists
+        - blue on the gt image if no pred exists (GT-only cell)
+        - if pred image happens to be the same as a GT image, draw both
+          (red pred + blue GT) so the user can eyeball the IoU
     """
-    by_cell: dict[tuple[str, str], list[dict]] = defaultdict(list)
+    PRED_COLOR = (220, 30, 30)   # red
+    GT_COLOR   = (50, 100, 220)  # blue
+
+    # ---- pred reps ----
+    by_cell_pred: dict[tuple[str, str], list[dict]] = defaultdict(list)
     for fname, preds in pred_by_file.items():
         date = file_to_date.get(fname, "")
         if not date:
             continue
         for entry in preds:
             box, merged_label, _topk, cls_score, scale, fine_label = entry[:6]
-            by_cell[(date, merged_label)].append({
-                "fname":         fname,
-                "box_xyxy":      box,
-                "cls_score":     cls_score,
-                "scale":         scale,
-                "fine_label":    fine_label,
-                "merged_label":  merged_label,
+            by_cell_pred[(date, merged_label)].append({
+                "fname":      fname,
+                "box":        box,
+                "cls_score":  cls_score,
+                "scale":      scale,
+                "fine_label": fine_label,
             })
-
-    representative: dict[tuple[str, str], dict] = {}
-    for cell, dets in by_cell.items():
+    pred_reps: dict[tuple[str, str], dict] = {}
+    for cell, dets in by_cell_pred.items():
         tight = [d for d in dets if d["scale"] == "tight"]
         pool = tight if tight else dets
-        representative[cell] = max(pool, key=lambda d: d["cls_score"])
-    return representative
+        pred_reps[cell] = max(pool, key=lambda d: d["cls_score"])
+
+    # ---- GT reps (one per cell, by date+merged label) ----
+    by_cell_gt: dict[tuple[str, str], list[dict]] = defaultdict(list)
+    for fname, gts in gt_by_file.items():
+        date = file_to_date.get(fname, "")
+        if not date:
+            continue
+        for box, label in gts:
+            by_cell_gt[(date, label)].append({"fname": fname, "box": box})
+    # Stable rep: just pick the first one (cells are sorted ish).
+    gt_reps = {cell: items[0] for cell, items in by_cell_gt.items()}
+
+    # ---- merge ----
+    out: dict[tuple[str, str], dict] = {}
+    for cell in set(pred_reps) | set(gt_reps):
+        p = pred_reps.get(cell)
+        g = gt_reps.get(cell)
+
+        if p is not None:
+            # Pred-cell: draw the pred box on the pred image. If the GT for
+            # this cell happens to be on the same image, draw both.
+            thumb_fname = p["fname"]
+            boxes = [(p["box"], PRED_COLOR)]
+            same_image_gt = next((it["box"] for it in by_cell_gt.get(cell, [])
+                                  if it["fname"] == p["fname"]), None)
+            if same_image_gt is not None:
+                boxes.append((same_image_gt, GT_COLOR))
+            out[cell] = {
+                "pred_fname":    p["fname"],
+                "pred_box":      p["box"],
+                "pred_score":    p["cls_score"],
+                "pred_scale":    p["scale"],
+                "pred_fine":     p["fine_label"],
+                "gt_fname":      g["fname"] if g else None,
+                "gt_box":        same_image_gt,
+                "thumb_fname":   thumb_fname,
+                "boxes_to_draw": boxes,
+            }
+        else:
+            # GT-only cell: draw a GT box on a GT image, in blue.
+            thumb_fname = g["fname"]
+            out[cell] = {
+                "pred_fname":    None,
+                "pred_box":      None,
+                "pred_score":    None,
+                "pred_scale":    None,
+                "pred_fine":     None,
+                "gt_fname":      g["fname"],
+                "gt_box":        g["box"],
+                "thumb_fname":   thumb_fname,
+                "boxes_to_draw": [(g["box"], GT_COLOR)],
+            }
+    return out
 
 
 def _safe(name: str) -> str:
@@ -657,14 +724,17 @@ def _safe(name: str) -> str:
 
 
 def render_thumbnail(image_path: str | Path,
-                     box_xyxy: list[int],
+                     boxes: list[tuple[list[int], tuple[int, int, int]]],
                      out_path: Path,
                      max_size: int = 1024,
-                     box_color: tuple[int, int, int] = (220, 30, 30),
                      box_width: int = 4) -> bool:
-    """Open the image, draw a red bounding box, downscale so the long edge
-    is `max_size`, save as JPEG. Returns True on success, False on failure
-    (missing/unreadable image, etc.)."""
+    """Open the image, draw all `boxes` (each as (xyxy, color_rgb)), downscale
+    so the long edge is `max_size`, save as JPEG. Returns True on success,
+    False on failure (missing/unreadable image, etc.).
+
+    Used to render multiple-color overlays — e.g. red predicted + blue GT
+    on the same thumbnail when a cell has both.
+    """
     try:
         from PIL import Image, ImageDraw
     except ImportError:
@@ -677,10 +747,11 @@ def render_thumbnail(image_path: str | Path,
         log.warning("could not open %s for thumbnail: %s", image_path, e)
         return False
 
-    # Draw the box at full image resolution so the line is crisp post-scale.
+    # Draw boxes at full image resolution so the line is crisp post-scale.
     draw = ImageDraw.Draw(img)
-    x1, y1, x2, y2 = box_xyxy
-    draw.rectangle([x1, y1, x2, y2], outline=box_color, width=box_width)
+    for box, color in boxes:
+        x1, y1, x2, y2 = box
+        draw.rectangle([x1, y1, x2, y2], outline=color, width=box_width)
 
     W, H = img.size
     long_edge = max(W, H)
@@ -709,7 +780,8 @@ def write_interactive_timeseries(file_to_date: dict[str, str],
     fixed preview pane. Thumbnails live in a sibling folder so the HTML is
     self-contained.
     """
-    representative = select_representatives(pred_by_file, file_to_date)
+    representative = select_representatives(pred_by_file, gt_by_file,
+                                            file_to_date)
 
     # Compute the same date and species axes the static plot uses.
     dates, species, gt_pres, pred_pres = build_species_timeseries(
@@ -742,30 +814,53 @@ def write_interactive_timeseries(file_to_date: dict[str, str],
     thumb_dir.mkdir(parents=True, exist_ok=True)
 
     # Render representative thumbnails. One per (date, species) with data.
-    n_thumbs = 0
+    n_thumbs = n_pred = n_gt_only = n_both_boxes = 0
     cell_meta: dict[tuple[str, str], dict] = {}
     for (d, s), info in representative.items():
-        fname = info["fname"]
-        image_path = fname_to_image_path.get(fname)
+        thumb_fname = info["thumb_fname"]
+        # Look up the absolute image path. fname_to_image_path comes from
+        # the per-image JSONs (only files with at least one detection),
+        # so for GT-only cells the JSON may not exist — fall back to
+        # constructing the path from the input dir.
+        image_path = fname_to_image_path.get(thumb_fname)
+        if not image_path:
+            # Fall back to looking next to a sibling pred image if any.
+            # As a last-ditch, try common image-folder env. Worst case,
+            # the thumbnail just doesn't render.
+            example = next(iter(fname_to_image_path.values()), None)
+            if example:
+                from os.path import dirname, join
+                image_path = join(dirname(example), thumb_fname)
+
         if not image_path:
             continue
+
         thumb_name = f"{_safe(d)}__{_safe(s)}.jpg"
         thumb_path = thumb_dir / thumb_name
         if not thumb_path.exists():
-            ok = render_thumbnail(image_path, info["box_xyxy"], thumb_path)
+            ok = render_thumbnail(image_path, info["boxes_to_draw"], thumb_path)
             if not ok:
                 continue
         n_thumbs += 1
+        if info["pred_box"] is not None:
+            n_pred += 1
+            if info["gt_box"] is not None:
+                n_both_boxes += 1
+        else:
+            n_gt_only += 1
+
         cell_meta[(d, s)] = {
-            "thumb":     f"timeseries_thumbs{suffix}/{thumb_name}",
-            "fname":     fname,
-            "score":     info["cls_score"],
-            "scale":     info["scale"],
-            "fine_label": info["fine_label"],
-            "merged":    info["merged_label"],
+            "thumb":      f"timeseries_thumbs{suffix}/{thumb_name}",
+            "fname":      thumb_fname,
+            "score":      info["pred_score"],
+            "scale":      info["pred_scale"],
+            "fine_label": info["pred_fine"],
+            "kind":       "pred" if info["pred_box"] is not None else "gt",
+            "has_gt_box": info["gt_box"] is not None,
         }
-    log.info("rendered %d representative thumbnails into %s",
-             n_thumbs, thumb_dir)
+    log.info("rendered %d thumbnails into %s "
+             "(%d pred + %d GT-only, %d showing both boxes)",
+             n_thumbs, thumb_dir, n_pred, n_gt_only, n_both_boxes)
 
     # Build the SVG heatmap. Columns = days, rows = species. Each filled
     # cell carries its metadata as data-attributes for JS hover.
@@ -841,10 +936,16 @@ def write_interactive_timeseries(file_to_date: dict[str, str],
                 attrs += [
                     f'data-thumb="{meta["thumb"]}"',
                     f'data-fname="{meta["fname"]}"',
-                    f'data-score="{meta["score"]:.2f}"',
-                    f'data-scale="{meta["scale"]}"',
-                    f'data-fine="{meta["fine_label"]}"',
+                    f'data-kind="{meta["kind"]}"',
+                    f'data-has-gt-box="{int(meta["has_gt_box"])}"',
                 ]
+                # Pred-side attrs only meaningful when kind == 'pred'.
+                if meta["kind"] == "pred":
+                    attrs += [
+                        f'data-score="{meta["score"]:.2f}"',
+                        f'data-scale="{meta["scale"]}"',
+                        f'data-fine="{meta["fine_label"]}"',
+                    ]
             svg_parts.append('<rect ' + ' '.join(attrs) + ' />')
 
     # Legend
@@ -925,17 +1026,32 @@ document.querySelectorAll('rect.cell').forEach(el => {{
     const pred = el.getAttribute('data-pred');
     const thumb = el.getAttribute('data-thumb');
     const fname = el.getAttribute('data-fname');
-    const score = el.getAttribute('data-score');
-    const scale = el.getAttribute('data-scale');
-    const fine = el.getAttribute('data-fine');
-    if (thumb) {{
+    const kind = el.getAttribute('data-kind');
+    const hasGtBox = el.getAttribute('data-has-gt-box');
+    if (thumb && kind === 'pred') {{
+      const fine = el.getAttribute('data-fine');
+      const score = el.getAttribute('data-score');
+      const scale = el.getAttribute('data-scale');
+      const colorNote = (hasGtBox === '1')
+        ? '<span style="color:#d62728">red</span>=pred &middot; ' +
+          '<span style="color:#1f77b4">blue</span>=GT'
+        : '<span style="color:#d62728">red</span>=pred';
       wrap.innerHTML = `<img src="${{thumb}}" alt="${{fname}}" />`;
       cap.innerHTML =
         `<b>${{sp}}</b> on ${{date}}<br/>` +
         `<span class="meta">${{fname}} · pred=${{fine}} · ` +
-        `score=${{score}} · scale=${{scale}} · ` +
+        `score=${{score}} · scale=${{scale}}<br/>` +
+        `${{colorNote}} · gt_count=${{gt}} pred_count=${{pred}}</span>`;
+    }} else if (thumb && kind === 'gt') {{
+      // GT-only cell: blue box on the GT-annotated image. The model didn't
+      // commit a prediction here.
+      wrap.innerHTML = `<img src="${{thumb}}" alt="${{fname}}" />`;
+      cap.innerHTML =
+        `<b>${{sp}}</b> on ${{date}}<br/>` +
+        `<span class="meta">${{fname}} · ` +
+        `<span style="color:#1f77b4">blue</span>=GT (no committed prediction)<br/>` +
         `gt_count=${{gt}} pred_count=${{pred}}</span>`;
-    }} else if (gt !== '0' || pred !== '0') {{
+    }} else if (pred !== '0') {{
       wrap.innerHTML = '<div class="placeholder">no thumbnail available ' +
                        '(check eval.log for failures)</div>';
       cap.innerHTML =
