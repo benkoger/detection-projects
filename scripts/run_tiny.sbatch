@@ -112,6 +112,6 @@ tiny run complete
     $TINY_OUTPUT
     $TINY_OUTPUT/eval/metrics.json
     $TINY_OUTPUT/eval/confusion_matrix_committed.png
-    $TINY_OUTPUT/eval/species_timeseries_strict.html
+    $TINY_OUTPUT/eval/species_timeseries_committed.html
 ==========================================================
 EOF

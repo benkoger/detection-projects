@@ -1002,12 +1002,8 @@ def write_interactive_timeseries(file_to_date: dict[str, str],
     svg_parts.append('</svg>')
     svg_str = "\n".join(svg_parts)
 
-    if suffix == "_strict":
-        view_label = (f"strict (cls_score >= {cls_min_confidence:.2f}, "
-                      f"quality=ok, scale=tight, cross-scale agree)")
-    else:
-        view_label = (f"committed (cls_score >= {cls_min_confidence:.2f}, "
-                      f"quality=ok)")
+    view_label = (f"committed (cls_score >= {cls_min_confidence:.2f}, "
+                  f"quality=ok, cross-scale agree)")
     title = f"Wytrap species presence per day — {view_label}"
     html = f'''<!doctype html>
 <html><head><meta charset="utf-8" />
@@ -1591,19 +1587,16 @@ def main() -> int:
     log.info("wrote %s", cal_path)
 
     # Pred-by-file filtered to committed-only for the timeseries.
-    # Committed = cls_score >= threshold AND cross_scale_agree (matches the
-    # evaluate() definition). The agreement gate is the bigger filter — on
-    # tiny eval, FPs agree only ~10% of the time vs ~78% for TPs.
+    # Committed = cls_score >= threshold AND cross_scale_agree AND quality==ok
+    # (the quality filter is already applied upstream in load_pred). This is
+    # the same filter the confusion matrix uses, so the timeseries HTML
+    # matches the headline metrics.
     pred_committed: dict[str, list] = defaultdict(list)
-    # "Strict" view for the interactive HTML: additionally requires
-    # scale=='tight'. Sharpest filter we have — for visual confirmation only.
-    pred_strict: dict[str, list] = defaultdict(list)
     require_agree = not args.no_cross_scale_agree
-    n_dropped_score = n_dropped_disagree = n_dropped_nontight = 0
+    n_dropped_score = n_dropped_disagree = 0
     for fname, preds in pred_by_file.items():
         for entry in preds:
             cls_score = entry[3]
-            scale = entry[4]
             agree = entry[6] if len(entry) > 6 else True
             if cls_score < args.cls_min_confidence:
                 n_dropped_score += 1
@@ -1612,17 +1605,10 @@ def main() -> int:
                 n_dropped_disagree += 1
                 continue
             pred_committed[fname].append(entry)
-            if scale != "tight":
-                n_dropped_nontight += 1
-                continue
-            pred_strict[fname].append(entry)
     log.info("committed timeseries: kept %d preds  "
              "(dropped %d below cls threshold, %d cross-scale-disagree)",
              sum(len(v) for v in pred_committed.values()),
              n_dropped_score, n_dropped_disagree)
-    log.info("strict timeseries:    kept %d preds  "
-             "(of those that survived committed: %d non-tight)",
-             sum(len(v) for v in pred_strict.values()), n_dropped_nontight)
 
     threshold_str = f"cls_score >= {args.cls_min_confidence:.2f}"
     write_confusion(metrics, out_dir,
@@ -1644,19 +1630,13 @@ def main() -> int:
                              title_qualifier=(
                                  "Predictions: all detections (no confidence threshold)"))
 
-    # Interactive HTML version. Two flavors:
-    #   _committed: ok-quality + cls_score >= threshold.
-    #   _strict:    additionally requires scale=='tight' + cross_scale_agree.
-    # Strict is the cleanest visual confirmation; committed is more permissive
-    # so you can see what's lurking just below the strict bar.
+    # Interactive HTML version using the committed view (cls_score >= threshold
+    # + quality=ok + cross_scale_agree). Same filter the confusion matrix
+    # uses, so the visualization matches the headline metrics.
     write_interactive_timeseries(file_to_date, gt_by_file, pred_committed,
                                  fname_to_image_path, out_dir,
                                  cls_min_confidence=args.cls_min_confidence,
                                  suffix="_committed")
-    write_interactive_timeseries(file_to_date, gt_by_file, pred_strict,
-                                 fname_to_image_path, out_dir,
-                                 cls_min_confidence=args.cls_min_confidence,
-                                 suffix="_strict")
     return 0
 
 
