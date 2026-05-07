@@ -21,11 +21,11 @@ def _add_detect_parser(sub: argparse._SubParsersAction) -> None:
     p.add_argument("--species", default="wyoming_all",
                    help="Builtin name (e.g. wyoming_all, wyoming_mammals, "
                         "ynp_testbed) or path to a newline-delimited species file.")
-    p.add_argument("--det-threshold", type=float, default=0.10,
-                   help="MegaDetector confidence cutoff (default: 0.10). "
-                        "Lower than the historical 0.2 to catch small / "
-                        "distant animals; the box-quality filter and NMS "
-                        "downstream remove most of the resulting noise.")
+    p.add_argument("--det-threshold", type=float, default=0.75,
+                   help="MegaDetector confidence cutoff (default: 0.75). "
+                        "SpeciesNet-recommended range for production. "
+                        "Lower (0.50, 0.30) if your camera deployments have "
+                        "many tiny far-shot animals at the cost of more FPs.")
     p.add_argument("--cls-topk", type=int, default=5,
                    help="BioCLIP top-k labels to record per detection (default: 5).")
     p.add_argument("--batch-size", type=int, default=8,
@@ -39,15 +39,21 @@ def _add_detect_parser(sub: argparse._SubParsersAction) -> None:
                    help="Skip images that already have an output JSON.")
     p.add_argument("--jsonl",
                    help="Optional path to also append all records to a single JSONL file.")
-    p.add_argument("--edge-margin-frac", type=float, default=0.01,
-                   help="Boxes within this fraction of any image side are "
-                        "tagged quality='edge' (default: 0.01 = 1%%).")
-    p.add_argument("--min-box-area-frac", type=float, default=0.005,
-                   help="Boxes smaller than this fraction of image area are "
-                        "tagged quality='small' (default: 0.005 = 0.5%%).")
-    p.add_argument("--max-aspect-ratio", type=float, default=5.0,
+    p.add_argument("--min-pixel-side", type=int, default=60,
+                   help="Boxes with shorter side below this many pixels are "
+                        "tagged quality='low_pixels' and dropped (BioCLIP "
+                        "needs ~60+ px on a side for usable signal). "
+                        "Default 60.")
+    p.add_argument("--border-overlap-truncated", type=float, default=0.20,
+                   help="Boxes whose perimeter overlaps the image edge by at "
+                        "least this fraction are tagged quality='truncated' "
+                        "(animal extends out of frame). Treated as PASCAL "
+                        "VOC 'difficult' at eval time — kept but not counted "
+                        "as TP/FP/FN. Default 0.20.")
+    p.add_argument("--max-aspect-ratio", type=float, default=8.0,
                    help="Boxes with longer-side / shorter-side above this "
-                        "are tagged quality='thin' (default: 5.0).")
+                        "are tagged quality='thin' and dropped. Default 8.0; "
+                        "loose enough to keep snakes and elongated angles.")
     p.add_argument("--skip-classification-when-bad", action="store_true",
                    help="Skip BioCLIP entirely on boxes whose quality is not "
                         "'ok'. Saves compute when you only care about clean "
@@ -107,8 +113,8 @@ def _cmd_detect(args: argparse.Namespace) -> int:
         recursive=args.recursive,
         resume=args.resume,
         jsonl_path=args.jsonl,
-        edge_margin_frac=args.edge_margin_frac,
-        min_box_area_frac=args.min_box_area_frac,
+        min_pixel_side=args.min_pixel_side,
+        border_overlap_truncated=args.border_overlap_truncated,
         max_aspect_ratio=args.max_aspect_ratio,
         skip_classification_when_bad=args.skip_classification_when_bad,
         tile=args.tile,

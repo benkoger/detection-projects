@@ -15,7 +15,8 @@ class DetectionRecord:
     scientific_label: str          # BioCLIP top-1 scientific name (winning scale)
     cls_score: float               # BioCLIP top-1 score (winning scale)
     topk: list[dict]               # [{"common": ..., "scientific": ..., "score": ...}, ...]
-    quality: str = "ok"            # "ok" | "edge" | "small" | "thin" | "skipped"
+    quality: str = "ok"            # "ok" | "low_pixels" | "truncated" | "thin" | "skipped"
+                                    # legacy values still load: "small", "edge"
     quality_reason: str = ""       # short detail when quality != "ok"
     scale: str = "tight"           # "tight" | "padded" | "full" — which scale won
     scale_scores: dict = field(default_factory=dict)  # per-scale top-1 scores

@@ -14,11 +14,11 @@
 #
 # Optional env-vars:
 #   SPECIES=wyoming_mammals          # default: wyoming_all
-#   DET_THRESHOLD=0.2
+#   DET_THRESHOLD=0.75               # MegaDetector confidence cutoff (default 0.75)
 #   BATCH_SIZE=8
-#   EDGE_MARGIN_FRAC=0.01
-#   MIN_BOX_AREA_FRAC=0.005
-#   MAX_ASPECT_RATIO=5.0
+#   MIN_PIXEL_SIDE=60                # drop boxes with min(w,h) < 60 px
+#   BORDER_OVERLAP_TRUNC=0.20        # mark as 'truncated' if perim overlap >= 20%
+#   MAX_ASPECT_RATIO=8.0             # drop slivers above 8:1 aspect
 #   SKIP_BAD=1                       # opt in to --skip-classification-when-bad
 #   TILE=1                           # opt in to SAHI sliced detection
 #                                    # (default: OFF — tiling hurt P/R on YNP-BisonGraze)
@@ -77,11 +77,11 @@ wytrap detect \
     --input  "$INPUT_DIR" \
     --output "$OUTPUT_DIR" \
     --species "${SPECIES:-wyoming_all}" \
-    --det-threshold "${DET_THRESHOLD:-0.10}" \
+    --det-threshold "${DET_THRESHOLD:-0.75}" \
     --batch-size "${BATCH_SIZE:-8}" \
-    --edge-margin-frac "${EDGE_MARGIN_FRAC:-0.01}" \
-    --min-box-area-frac "${MIN_BOX_AREA_FRAC:-0.005}" \
-    --max-aspect-ratio "${MAX_ASPECT_RATIO:-5.0}" \
+    --min-pixel-side "${MIN_PIXEL_SIDE:-60}" \
+    --border-overlap-truncated "${BORDER_OVERLAP_TRUNC:-0.20}" \
+    --max-aspect-ratio "${MAX_ASPECT_RATIO:-8.0}" \
     --tile-size "${TILE_SIZE:-480}" \
     --tile-overlap "${TILE_OVERLAP:-0.2}" \
     --multiscale-pad "${MULTISCALE_PAD:-2.0}" \

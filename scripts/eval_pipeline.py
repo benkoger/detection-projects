@@ -207,6 +207,15 @@ def load_pred(pred_dir: Path,
         for det in rec.detections:
             quality_counts[det.quality] += 1
             scale_counts[det.scale] += 1
+            # Drop low_pixels / thin / small / edge / skipped: these are
+            # unusable per the new quality framework. Keep "ok" and
+            # "truncated" — truncated is treated as VOC "difficult"
+            # downstream (neither TP nor FP at eval time).
+            DROP = {"low_pixels", "thin", "skipped",
+                    # back-compat with older JSON schemas
+                    "small", "edge"}
+            if det.quality in DROP:
+                continue
             if quality_filter is not None and det.quality not in quality_filter:
                 continue
             top1 = merges.get(det.label, det.label)
@@ -215,7 +224,8 @@ def load_pred(pred_dir: Path,
             pred_by_file[fname].append((det.box_xyxy, top1, topk,
                                         float(det.cls_score), det.scale,
                                         det.fine_label,
-                                        bool(det.cross_scale_agree)))
+                                        bool(det.cross_scale_agree),
+                                        det.quality))
     log.info("scanned %d pipeline JSONs, matched %d to GT filenames",
              n_records_seen, n_records_matched)
     return pred_by_file, quality_counts, scale_counts, fname_to_image_path
@@ -248,6 +258,10 @@ def evaluate(gt_by_file: dict[str, list],
     tp = fp = fn = 0
     matched = 0
     committed = 0
+    # VOC-style "difficult" bucket — truncated boxes neither score TP/FP/FN
+    # nor count toward classification metrics. They're reported separately.
+    marginal_matched = 0
+    marginal_unmatched = 0
     correct_at = {k: 0 for k in top_ks}
     confusion: dict[str, Counter] = defaultdict(Counter)
     in_topk_only: dict[str, Counter] = defaultdict(Counter)
@@ -267,7 +281,7 @@ def evaluate(gt_by_file: dict[str, list],
     for fname, gts in gt_by_file.items():
         preds = pred_by_file.get(fname, [])
         gt_used = [False] * len(gts)
-        for pbox, plabel, ptopk, cls_score, scale, _fine, agree in preds:
+        for pbox, plabel, ptopk, cls_score, scale, _fine, agree, quality in preds:
             best_iou, best_j = 0.0, -1
             for j, (gbox, _) in enumerate(gts):
                 if gt_used[j]:
@@ -275,6 +289,19 @@ def evaluate(gt_by_file: dict[str, list],
                 v = iou(pbox, gbox)
                 if v > best_iou:
                     best_iou, best_j = v, j
+
+            # VOC "difficult" handling: truncated boxes are neither
+            # rewarded nor penalised. They consume the matched GT (so
+            # another pred doesn't double-claim it) but don't enter
+            # TP/FP/FN tallies.
+            if quality == "truncated":
+                if best_iou >= iou_thresh:
+                    gt_used[best_j] = True
+                    marginal_matched += 1
+                else:
+                    marginal_unmatched += 1
+                continue
+
             if best_iou >= iou_thresh:
                 tp += 1
                 gt_used[best_j] = True
@@ -320,6 +347,8 @@ def evaluate(gt_by_file: dict[str, list],
         "precision": precision, "recall": recall,
         "iou_thresh": iou_thresh,
         "cls_min_confidence": cls_min_confidence,
+        "marginal_matched":   marginal_matched,
+        "marginal_unmatched": marginal_unmatched,
     }
     for k in top_ks:
         metrics[f"top{k}_acc"] = (correct_at[k] / committed) if committed else 0.0
@@ -1432,11 +1461,16 @@ def main() -> int:
     metrics["n_gt_images"] = len(gt_by_file)
     metrics["n_gt_boxes"] = sum(len(v) for v in gt_by_file.values())
 
-    log.info("===== detection (per box, IoU=%.2f) =====", args.iou)
+    log.info("===== detection (per box, IoU=%.2f, "
+             "ok-quality only) =====", args.iou)
     log.info("  precision : %.3f", metrics["precision"])
     log.info("  recall    : %.3f", metrics["recall"])
     log.info("  tp/fp/fn  : %d / %d / %d",
              metrics["tp"], metrics["fp"], metrics["fn"])
+    if metrics["marginal_matched"] + metrics["marginal_unmatched"] > 0:
+        log.info("  marginal  : %d matched + %d unmatched truncated boxes "
+                 "(VOC 'difficult' — neither TP nor FP)",
+                 metrics["marginal_matched"], metrics["marginal_unmatched"])
 
     img_level = image_level_eval(
         gt_by_file, pred_by_file,

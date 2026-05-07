@@ -20,7 +20,7 @@
 #
 # Optional env-vars (override the wytrap defaults for this run):
 #   SPECIES=ynp_testbed
-#   DET_THRESHOLD=0.10
+#   DET_THRESHOLD=0.75
 #   TILE_SIZE=480 TILE_OVERLAP=0.2
 #   TILE=1 NO_MULTISCALE=1 SKIP_BAD=1
 #   CLS_MIN_CONF=0.30                 # eval-side threshold
@@ -73,11 +73,11 @@ wytrap detect \
     --input  "$TINY_IMAGES" \
     --output "$TINY_OUTPUT" \
     --species "${SPECIES:-ynp_testbed}" \
-    --det-threshold "${DET_THRESHOLD:-0.10}" \
+    --det-threshold "${DET_THRESHOLD:-0.75}" \
     --batch-size "${BATCH_SIZE:-8}" \
-    --edge-margin-frac "${EDGE_MARGIN_FRAC:-0.01}" \
-    --min-box-area-frac "${MIN_BOX_AREA_FRAC:-0.005}" \
-    --max-aspect-ratio "${MAX_ASPECT_RATIO:-5.0}" \
+    --min-pixel-side "${MIN_PIXEL_SIDE:-60}" \
+    --border-overlap-truncated "${BORDER_OVERLAP_TRUNC:-0.20}" \
+    --max-aspect-ratio "${MAX_ASPECT_RATIO:-8.0}" \
     --tile-size "${TILE_SIZE:-480}" \
     --tile-overlap "${TILE_OVERLAP:-0.2}" \
     --multiscale-pad "${MULTISCALE_PAD:-2.0}" \

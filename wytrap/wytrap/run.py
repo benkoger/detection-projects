@@ -126,43 +126,63 @@ def _pad_box(box: tuple[int, int, int, int],
 
 def assess_box_quality(box: tuple[int, int, int, int],
                        image_size: tuple[int, int],
-                       edge_margin_frac: float = 0.01,
-                       min_box_area_frac: float = 0.005,
-                       max_aspect_ratio: float = 5.0) -> tuple[str, str]:
-    """Heuristic check for whether a detection box is likely to contain a
-    mostly-whole animal vs. just an edge sliver.
+                       min_pixel_side: int = 60,
+                       border_overlap_truncated: float = 0.20,
+                       max_aspect_ratio: float = 8.0,
+                       border_tolerance_px: int = 2) -> tuple[str, str]:
+    """Classifier-feasibility check for a detection box.
 
     Returns (quality, reason). quality is one of:
-      - "ok":    box looks classifiable
-      - "edge":  box touches the image border (likely partial animal)
-      - "small": box is a small fraction of the image (few pixels for BioCLIP)
-      - "thin":  extreme aspect ratio (long-thin box, often a leg/tail)
+      - "ok":          box has enough pixels and the animal looks fully framed
+      - "low_pixels":  short side < min_pixel_side — BioCLIP won't have signal
+      - "truncated":   substantial fraction of box perimeter sits on the image
+                       border — animal almost certainly extends out of frame.
+                       Treated as PASCAL VOC "difficult": neither TP nor FP at
+                       eval time; kept for analysis but not committed.
+      - "thin":        extreme aspect ratio (sliver, leg/tail) — rare; dropped.
 
-    First failing check wins; thresholds are configurable. Edge takes priority
-    because edge-clipped boxes drive the most BioCLIP errors in practice.
+    Why these criteria:
+      - **Absolute pixel size**, not fraction-of-image. BioCLIP doesn't care
+        about resolution; it cares about how many pixels of animal it sees.
+      - **Perimeter-overlap fraction** captures *degree* of truncation rather
+        than just "box touches edge". A close-up bison filling 95% of the
+        frame has high perimeter overlap → truncated (we can't see the whole
+        animal). A small pronghorn standing at the right edge has ~25%
+        overlap → truncated. A distant pronghorn centered with no edge
+        contact has 0% overlap → ok regardless of size.
+      - **Larger aspect-ratio cap (8:1)** lets through snakes, distant
+        elongated views, animals at odd angles.
+
+    First failing check wins; tight thresholds first.
     """
     x1, y1, x2, y2 = box
     W, H = image_size
     bw = max(1, x2 - x1)
     bh = max(1, y2 - y1)
 
-    margin_w = edge_margin_frac * W
-    margin_h = edge_margin_frac * H
-    if (x1 <= margin_w or y1 <= margin_h
-            or x2 >= W - margin_w or y2 >= H - margin_h):
-        sides = []
-        if x1 <= margin_w: sides.append("L")
-        if y1 <= margin_h: sides.append("T")
-        if x2 >= W - margin_w: sides.append("R")
-        if y2 >= H - margin_h: sides.append("B")
-        return "edge", f"touches {''.join(sides)} border"
+    # 1) Pixel-size floor. Below this, the classifier can't recover signal
+    #    even with multi-scale upsampling.
+    if min(bw, bh) < min_pixel_side:
+        return "low_pixels", f"min side {min(bw, bh)}px < {min_pixel_side}px"
 
-    if (bw * bh) / float(W * H) < min_box_area_frac:
-        return "small", f"area {(bw*bh)/(W*H):.4f} < {min_box_area_frac}"
-
+    # 2) Aspect-ratio cap. Filters tiny slivers; rare in practice.
     ar = max(bw / bh, bh / bw)
     if ar > max_aspect_ratio:
         return "thin", f"aspect ratio {ar:.1f} > {max_aspect_ratio}"
+
+    # 3) Truncation — fraction of box perimeter coincident with image edge.
+    #    Each box side that lies within `border_tolerance_px` of an image
+    #    border contributes its length to the overlap.
+    overlap_len = 0
+    if x1 <= border_tolerance_px:                  overlap_len += bh   # left
+    if y1 <= border_tolerance_px:                  overlap_len += bw   # top
+    if (W - x2) <= border_tolerance_px:            overlap_len += bh   # right
+    if (H - y2) <= border_tolerance_px:            overlap_len += bw   # bottom
+    perimeter = 2 * (bw + bh)
+    overlap_frac = overlap_len / perimeter if perimeter > 0 else 0.0
+    if overlap_frac >= border_overlap_truncated:
+        return "truncated", (f"{overlap_frac:.0%} of perimeter on image edge "
+                             f">= {border_overlap_truncated:.0%}")
 
     return "ok", ""
 
@@ -171,9 +191,9 @@ def process_image(image_path: str | Path,
                   detector: Detector,
                   classifier: Classifier,
                   merges: dict[str, str] | None = None,
-                  edge_margin_frac: float = 0.01,
-                  min_box_area_frac: float = 0.005,
-                  max_aspect_ratio: float = 5.0,
+                  min_pixel_side: int = 60,
+                  border_overlap_truncated: float = 0.20,
+                  max_aspect_ratio: float = 8.0,
                   skip_classification_when_bad: bool = False,
                   tile: bool = False,
                   tile_size: int = 480,
@@ -212,8 +232,8 @@ def process_image(image_path: str | Path,
     qualities = [
         assess_box_quality(
             d.box_xyxy, (W, H),
-            edge_margin_frac=edge_margin_frac,
-            min_box_area_frac=min_box_area_frac,
+            min_pixel_side=min_pixel_side,
+            border_overlap_truncated=border_overlap_truncated,
             max_aspect_ratio=max_aspect_ratio,
         )
         for d in detections
@@ -301,7 +321,7 @@ def process_image(image_path: str | Path,
 def process_folder(input_dir: str | Path,
                    output_dir: str | Path,
                    species: str | Sequence = "wyoming_all",
-                   det_threshold: float = 0.10,
+                   det_threshold: float = 0.75,
                    cls_topk: int = 5,
                    batch_size: int = 8,
                    device: str = "auto",
@@ -309,9 +329,9 @@ def process_folder(input_dir: str | Path,
                    resume: bool = False,
                    jsonl_path: str | Path | None = None,
                    merges: dict[str, str] | None = None,
-                   edge_margin_frac: float = 0.01,
-                   min_box_area_frac: float = 0.005,
-                   max_aspect_ratio: float = 5.0,
+                   min_pixel_side: int = 60,
+                   border_overlap_truncated: float = 0.20,
+                   max_aspect_ratio: float = 8.0,
                    skip_classification_when_bad: bool = False,
                    tile: bool = False,
                    tile_size: int = 480,
@@ -347,8 +367,9 @@ def process_folder(input_dir: str | Path,
          f"({species if isinstance(species, str) else 'custom sequence'})")
     plog(f"det threshold     : {det_threshold}")
     plog(f"cls topk          : {cls_topk}")
-    plog(f"box quality       : edge<{edge_margin_frac}, "
-         f"area<{min_box_area_frac}, ar>{max_aspect_ratio}, "
+    plog(f"box quality       : min_pixel_side={min_pixel_side}px, "
+         f"border_overlap>={border_overlap_truncated:.0%}, "
+         f"ar>{max_aspect_ratio}, "
          f"skip_bad={skip_classification_when_bad}")
     plog(f"sliced detection  : tile={tile}, tile_size={tile_size}, "
          f"overlap={tile_overlap}")
@@ -407,8 +428,8 @@ def process_folder(input_dir: str | Path,
         try:
             record = process_image(
                 image_path, detector, classifier, merges=merges,
-                edge_margin_frac=edge_margin_frac,
-                min_box_area_frac=min_box_area_frac,
+                min_pixel_side=min_pixel_side,
+                border_overlap_truncated=border_overlap_truncated,
                 max_aspect_ratio=max_aspect_ratio,
                 skip_classification_when_bad=skip_classification_when_bad,
                 tile=tile, tile_size=tile_size, tile_overlap=tile_overlap,
