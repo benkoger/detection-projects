@@ -80,6 +80,7 @@ YNP_EVAL_MERGES = {
     "Clark's nutcracker": "bird",
     "ruffed grouse": "bird",
     "dusky grouse": "bird",
+    "sandhill crane": "bird",
     "white-crowned sparrow": "bird",
     "wild turkey": "bird",
     "golden eagle": "bird",
@@ -91,7 +92,27 @@ YNP_EVAL_MERGES = {
     "house finch": "bird",
     "black-capped chickadee": "bird",
     "western meadowlark": "bird",
-    "european starling": "bird"
+    "european starling": "bird",
+    "sandhill crane": "bird",
+    "white-crowned sparrow": "bird",
+
+    # Family/genus-level entries used by the default YNP_TESTBED. The
+    # `common` field of those species_lists entries already collapses to
+    # the merged class string ("Canid", "rodent", "bird", etc.), but we
+    # also map the prompt strings here so any place that resolves by the
+    # raw scientific name lands on the right merge target.
+    "Canidae":      "Canid",
+    "Ursidae":      "Bear",
+    "Odocoileus":   "Deer",
+    "Sciuridae":    "rodent",
+    "Cricetidae":   "rodent",
+    "Corvidae":     "bird",
+    "Accipitridae": "bird",
+    "Phasianidae":  "bird",
+    "Anatidae":     "bird",
+    "Strigidae":    "bird",
+    "Turdidae":     "bird",
+    "Gruidae":      "bird",
 }
 
 

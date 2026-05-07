@@ -194,18 +194,74 @@ WYOMING_ALL: list[Species] = (
 )
 
 
-# Testbed list for the YNP-BisonGraze validation harness.
+# --------------------------- YNP_TESTBED (default) ---------------------------
 #
-# Each merged GT category (Canid / Bear / Deer / rodent / bird) is now
-# expanded into its actual member species so BioCLIP gets to pick the species
-# it knows best — a "max over members" strategy. The collapsing back to GT
-# vocabulary happens at *eval* time via helpers.YNP_EVAL_MERGES, not at
-# inference time, so per-image JSONs preserve the species-level prediction.
+# Hybrid family-level testbed: species-level prompts for animals we want to
+# identify precisely (the named YNP ungulates, badger, human), and family- or
+# genus-level prompts for the merged catch-all categories (Canid / Bear /
+# Deer / rodent / bird). Drastically reduces score-splitting: the rodent
+# vote isn't fragmented across 11 species, the bird vote isn't fragmented
+# across 18.
 #
-# This dramatically improves accuracy on the rodent / bird supercategories
-# (BioCLIP-2 has no clean text embedding for the literal word "rodent" but
-# rich ones for each species name).
+# BioCLIP-2 was trained on TreeOfLife-200M, which annotates at every
+# taxonomic rank (kingdom → ... → species), so prompts like "Canidae" and
+# "Sciuridae" get meaningful activations.
+#
+# When you DO want species-level identification (e.g. distinguishing wolf
+# from coyote from fox), use YNP_TESTBED_FULL (below) which has all 48
+# species expanded.
 YNP_TESTBED: list[Species] = [
+    # Singleton ungulates — species-level keeps them separable from each
+    # other and from the merged classes.
+    _sp("Bison bison", "bison"),
+    _sp("Cervus canadensis", "elk"),
+    _sp("Alces alces", "moose"),
+    _sp("Antilocapra americana", "pronghorn"),
+    _sp("Ovis canadensis", "bighorn sheep"),
+
+    # Other singletons
+    _sp("Taxidea taxus", "badger"),
+    _sp("Homo sapiens", "human"),
+
+    # Merged classes — family / genus level.
+    # Canidae covers coyote, gray wolf, red/swift/gray fox.
+    _sp("Canidae", "Canid"),
+    # Ursidae covers black bear + grizzly bear.
+    _sp("Ursidae", "Bear"),
+    # Odocoileus (genus) covers mule deer + white-tailed deer.
+    # NOT Cervidae here — that would conflict with elk + moose singletons.
+    _sp("Odocoileus", "Deer"),
+
+    # Catch-all categories — most-common Wyoming families.
+    # Sciuridae: marmots, ground squirrels, tree squirrels, chipmunks
+    # (most rodent sightings on YNP cameras).
+    _sp("Sciuridae", "rodent"),
+    # Cricetidae: voles + native mice.
+    _sp("Cricetidae", "rodent"),
+
+    # Birds — camera-trap-realistic family list. Each maps to "bird" at
+    # eval time; the multiple prompts give BioCLIP separable family-level
+    # embeddings without bloating to 18 species.
+    _sp("Corvidae", "bird"),       # ravens, crows, magpies, jays
+    _sp("Accipitridae", "bird"),   # hawks, eagles
+    _sp("Phasianidae", "bird"),    # grouse, turkeys, partridges
+    _sp("Anatidae", "bird"),       # waterfowl
+    _sp("Strigidae", "bird"),      # owls
+    _sp("Turdidae", "bird"),       # thrushes (incl. American robin)
+    _sp("Gruidae", "bird"),        # cranes (incl. sandhill)
+]
+
+
+# --------------------------- YNP_TESTBED_FULL ---------------------------
+#
+# Original 48-species expansion of the merged categories. Every member
+# species of Canid/Bear/Deer/rodent/bird gets its own prompt, and all
+# collapse to the merged class at eval time via YNP_EVAL_MERGES.
+#
+# Use this when you want species-level identification (e.g. distinguishing
+# wolf from coyote in the JSON output), at the cost of more score-splitting
+# on supercategories.
+YNP_TESTBED_FULL: list[Species] = [
     # Singleton ungulates
     _sp("Bison bison", "bison"),
     _sp("Cervus canadensis", "elk"),
@@ -252,6 +308,7 @@ YNP_TESTBED: list[Species] = [
     _sp("Nucifraga columbiana", "Clark's nutcracker"),
     _sp("Bonasa umbellus", "ruffed grouse"),
     _sp("Dendragapus obscurus", "dusky grouse"),
+    _sp("Antigone canadensis", "sandhill crane"),
     _sp("Zonotrichia leucophrys", "white-crowned sparrow"),
     _sp("Meleagris gallopavo", "wild turkey"),
     _sp("Aquila chrysaetos", "golden eagle"),
@@ -276,7 +333,8 @@ BUILTIN_LISTS: dict[str, list[Species]] = {
     "wyoming_mammals": WYOMING_MAMMALS,
     "wyoming_birds": WYOMING_BIRDS,
     "wyoming_reptiles_amphibians": WYOMING_REPTILES_AMPHIBIANS,
-    "ynp_testbed": YNP_TESTBED,
+    "ynp_testbed": YNP_TESTBED,            # default: family/genus + singletons
+    "ynp_testbed_full": YNP_TESTBED_FULL,  # 48-species expanded version
 }
 
 
