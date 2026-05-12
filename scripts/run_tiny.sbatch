@@ -20,7 +20,7 @@
 #
 # Optional env-vars (override the wytrap defaults for this run):
 #   SPECIES=ynp_testbed
-#   DET_THRESHOLD=0.75
+#   DET_THRESHOLD=0.50               # inference floor; eval-time sweep covers higher
 #   TILE_SIZE=480 TILE_OVERLAP=0.2
 #   TILE=1 NO_MULTISCALE=1 SKIP_BAD=1
 #   CLS_MIN_CONF=0.30                 # eval-side threshold
@@ -73,7 +73,7 @@ wytrap detect \
     --input  "$TINY_IMAGES" \
     --output "$TINY_OUTPUT" \
     --species "${SPECIES:-ynp_testbed}" \
-    --det-threshold "${DET_THRESHOLD:-0.75}" \
+    --det-threshold "${DET_THRESHOLD:-0.50}" \
     --batch-size "${BATCH_SIZE:-8}" \
     --min-pixel-side "${MIN_PIXEL_SIDE:-60}" \
     --border-overlap-truncated "${BORDER_OVERLAP_TRUNC:-0.20}" \
@@ -111,7 +111,10 @@ tiny run complete
   artifacts in:
     $TINY_OUTPUT
     $TINY_OUTPUT/eval/metrics.json
-    $TINY_OUTPUT/eval/confusion_matrix_committed.png
-    $TINY_OUTPUT/eval/species_timeseries_committed.html
+    $TINY_OUTPUT/eval/confusion_matrix_species_id.png
+    $TINY_OUTPUT/eval/confusion_matrix_triage.png
+    $TINY_OUTPUT/eval/species_timeseries_species_id.html
+    $TINY_OUTPUT/eval/species_timeseries_triage.html
+    $TINY_OUTPUT/eval/sweep_3d.json
 ==========================================================
 EOF

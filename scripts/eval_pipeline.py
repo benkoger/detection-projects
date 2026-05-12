@@ -100,6 +100,19 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--ocr-dates",
                    help="Explicit path to file_to_date.json. Overrides the "
                         "auto-discovery next to --pred.")
+    p.add_argument("--sweep-det", default="0.50,0.65,0.75,0.85",
+                   help="Comma-separated det_threshold values for the 3D "
+                        "Pareto sweep. Floor is bounded below by the "
+                        "inference-time det_threshold the records were "
+                        "produced at. Default '0.50,0.65,0.75,0.85'.")
+    p.add_argument("--sweep-cls", default="0.0,0.30,0.50,0.70,0.90",
+                   help="Comma-separated cls_threshold values for the 3D sweep.")
+    p.add_argument("--triage-cls", type=float, default=0.0,
+                   help="cls_threshold for the TRIAGE track (presence/absence). "
+                        "Default 0.0 (no filter — maximize recall).")
+    p.add_argument("--triage-agree", action="store_true",
+                   help="Require cross_scale_agree on the TRIAGE track. "
+                        "Default off — triage favors recall over precision.")
     return p.parse_args()
 
 
@@ -167,7 +180,8 @@ def load_pred(pred_dir: Path,
 
     Returns:
         pred_by_file: {file_basename: [(xyxy, merged_top1, [merged_topk_labels],
-                                         cls_score, scale, fine_label)]}
+                                         cls_score, scale, fine_label, agree,
+                                         quality, det_score)]}
         quality_counts: Counter of quality field values across all preds.
         scale_counts:   Counter of scale field values across all preds.
         fname_to_image_path: {file_basename: absolute image path on disk}
@@ -225,7 +239,8 @@ def load_pred(pred_dir: Path,
                                         float(det.cls_score), det.scale,
                                         det.fine_label,
                                         bool(det.cross_scale_agree),
-                                        det.quality))
+                                        det.quality,
+                                        float(det.det_score)))
     log.info("scanned %d pipeline JSONs, matched %d to GT filenames",
              n_records_seen, n_records_matched)
     return pred_by_file, quality_counts, scale_counts, fname_to_image_path
@@ -236,7 +251,8 @@ def evaluate(gt_by_file: dict[str, list],
              iou_thresh: float,
              top_ks: list[int],
              cls_min_confidence: float = 0.30,
-             require_cross_scale_agree: bool = True) -> dict:
+             require_cross_scale_agree: bool = True,
+             det_threshold: float = 0.0) -> dict:
     """Evaluate predictions vs GT.
 
     Detection P/R is computed over all matched/unmatched boxes regardless of
@@ -251,9 +267,13 @@ def evaluate(gt_by_file: dict[str, list],
     so requiring agreement materially improves precision at moderate cost
     to committed recall.
 
-    Each `pred_by_file` entry is a 7-tuple
+    Each `pred_by_file` entry is a 9-tuple
     (xyxy_box, top1_label, topk_labels, cls_score, scale,
-     fine_label, cross_scale_agree).
+     fine_label, cross_scale_agree, quality, det_score).
+
+    `det_threshold` filters preds by det_score before any matching — used by
+    the 3D sweep to simulate raising the detector-confidence floor without
+    re-running inference. Defaults to 0.0 (no filter).
     """
     tp = fp = fn = 0
     matched = 0
@@ -281,7 +301,9 @@ def evaluate(gt_by_file: dict[str, list],
     for fname, gts in gt_by_file.items():
         preds = pred_by_file.get(fname, [])
         gt_used = [False] * len(gts)
-        for pbox, plabel, ptopk, cls_score, scale, _fine, agree, quality in preds:
+        for pbox, plabel, ptopk, cls_score, scale, _fine, agree, quality, det_score in preds:
+            if det_score < det_threshold:
+                continue
             best_iou, best_j = 0.0, -1
             for j, (gbox, _) in enumerate(gts):
                 if gt_used[j]:
@@ -1002,8 +1024,13 @@ def write_interactive_timeseries(file_to_date: dict[str, str],
     svg_parts.append('</svg>')
     svg_str = "\n".join(svg_parts)
 
-    view_label = (f"committed (cls_score >= {cls_min_confidence:.2f}, "
-                  f"quality=ok, cross-scale agree)")
+    if suffix == "_triage":
+        view_label = (f"TRIAGE (cls_score >= {cls_min_confidence:.2f}, "
+                      f"quality=ok, recall-maximizing)")
+    else:
+        view_label = (f"SPECIES ID — committed (cls_score >= "
+                      f"{cls_min_confidence:.2f}, quality=ok, "
+                      f"cross-scale agree)")
     title = f"Wytrap species presence per day — {view_label}"
     html = f'''<!doctype html>
 <html><head><meta charset="utf-8" />
@@ -1105,7 +1132,8 @@ document.querySelectorAll('rect.cell').forEach(el => {{
 def _image_level_count(gt_by_file: dict[str, list],
                        pred_by_file: dict[str, list],
                        cls_min_confidence: float,
-                       require_cross_scale_agree: bool) -> dict:
+                       require_cross_scale_agree: bool,
+                       det_threshold: float = 0.0) -> dict:
     """Per-image bucketing under a given commit policy."""
     tp = fp = fn = tn = 0
     all_files = set(gt_by_file) | set(pred_by_file)
@@ -1115,6 +1143,9 @@ def _image_level_count(gt_by_file: dict[str, list],
         for entry in pred_by_file.get(fname, []):
             cls_score = entry[3]
             agree = entry[6] if len(entry) > 6 else True
+            det_score = entry[8] if len(entry) > 8 else 1.0
+            if det_score < det_threshold:
+                continue
             if cls_score < cls_min_confidence:
                 continue
             if require_cross_scale_agree and not agree:
@@ -1201,6 +1232,59 @@ def image_level_eval(gt_by_file: dict[str, list],
     return {
         **headline,
     }
+
+
+def sweep_3d(gt_by_file: dict[str, list],
+             pred_by_file: dict[str, list],
+             iou_thresh: float,
+             top_ks: list[int],
+             det_thresholds: list[float],
+             cls_thresholds: list[float],
+             agree_values: list[bool]) -> list[dict]:
+    """Grid over (det_threshold × cls_threshold × cross_scale_agree).
+
+    For each cell, runs the full evaluator and records the Pareto-relevant
+    numbers: box-level det P/R, image-level has-animal P/R/F1, committed
+    top-1 acc, and committed count. Lets the analyst see the precision/recall
+    curve we've been missing.
+
+    det_thresholds floor is bounded below by the inference-time
+    det_threshold the records were produced at — values below that floor
+    have no additional detections to add, so they just duplicate the
+    floor's cell.
+    """
+    rows = []
+    for det_t in det_thresholds:
+        for cls_t in cls_thresholds:
+            for agree in agree_values:
+                m = evaluate(gt_by_file, pred_by_file,
+                             iou_thresh=iou_thresh, top_ks=top_ks,
+                             cls_min_confidence=cls_t,
+                             require_cross_scale_agree=agree,
+                             det_threshold=det_t)
+                img = _image_level_count(
+                    gt_by_file, pred_by_file,
+                    cls_min_confidence=cls_t,
+                    require_cross_scale_agree=agree,
+                    det_threshold=det_t,
+                )
+                rows.append({
+                    "det_threshold":   det_t,
+                    "cls_threshold":   cls_t,
+                    "require_agree":   agree,
+                    "box_precision":   m["precision"],
+                    "box_recall":      m["recall"],
+                    "box_tp":          m["tp"],
+                    "box_fp":          m["fp"],
+                    "box_fn":          m["fn"],
+                    "committed":       m["committed"],
+                    "matched":         m["matched"],
+                    "top1_acc":        m.get("top1_acc", 0.0),
+                    "img_precision":   img["has_animal_precision"],
+                    "img_recall":      img["has_animal_recall"],
+                    "img_f1":          img["has_animal_f1"],
+                })
+    return rows
 
 
 def calibration_analysis(gt_by_file: dict[str, list],
@@ -1560,22 +1644,95 @@ def main() -> int:
         json.dump(metrics, f, indent=2)
     log.info("wrote %s", metrics_path)
 
-    # ----------- side-by-side outputs: committed vs all -----------
-    # For comparison, also compute a second metrics pass with NO confidence
-    # filter and emit a parallel set of confusion matrices + timeseries.
-    # The committed view is the "trustworthy answer"; the all view shows
-    # what we'd get if we just used every prediction regardless of score.
-    log.info("Computing 'all detections' metrics pass for side-by-side comparison")
-    metrics_all = evaluate(gt_by_file, pred_by_file,
-                           iou_thresh=args.iou, top_ks=top_ks,
-                           cls_min_confidence=0.0,
-                           require_cross_scale_agree=False)
-    metrics_all["quality_filter"] = args.quality
-    metrics_all["merge_applied"] = not args.no_merge
-    metrics_all_path = out_dir / "metrics_all.json"
-    with open(metrics_all_path, "w") as f:
-        json.dump(metrics_all, f, indent=2)
-    log.info("wrote %s", metrics_all_path)
+    # ===================================================================
+    # TWO TRACKS — these are different downstream products:
+    #   TRIAGE     : "is there an animal in this image?"     (recall-maximizing)
+    #   SPECIES ID : "what species, on committed predictions" (precision-maximizing)
+    # The headline `metrics` above is the SPECIES_ID track. Below we compute
+    # the TRIAGE track with its own (looser) commit policy and emit a
+    # parallel set of artifacts.
+    # ===================================================================
+    log.info("Computing TRIAGE track (cls>=%.2f, agree=%s)",
+             args.triage_cls, args.triage_agree)
+    metrics_triage = evaluate(gt_by_file, pred_by_file,
+                              iou_thresh=args.iou, top_ks=top_ks,
+                              cls_min_confidence=args.triage_cls,
+                              require_cross_scale_agree=args.triage_agree)
+    metrics_triage["quality_filter"] = args.quality
+    metrics_triage["merge_applied"] = not args.no_merge
+    metrics_triage["track"] = "triage"
+    metrics_triage["cls_threshold"] = args.triage_cls
+    metrics_triage["require_agree"] = args.triage_agree
+    metrics_triage_img = image_level_eval(
+        gt_by_file, pred_by_file,
+        cls_min_confidence=args.triage_cls,
+        require_cross_scale_agree=args.triage_agree,
+    )
+    metrics_triage["image_level"] = metrics_triage_img
+    metrics_triage_path = out_dir / "metrics_triage.json"
+    with open(metrics_triage_path, "w") as f:
+        json.dump(metrics_triage, f, indent=2)
+    log.info("wrote %s", metrics_triage_path)
+
+    log.info("===== TRIAGE track (is there an animal?) =====")
+    log.info("  policy           : cls>=%.2f%s", args.triage_cls,
+             " + agree" if args.triage_agree else " (no agree)")
+    log.info("  image P/R/F1     : %.3f / %.3f / %.3f",
+             metrics_triage_img["has_animal_precision"],
+             metrics_triage_img["has_animal_recall"],
+             metrics_triage_img["has_animal_f1"])
+    log.info("  TP/FN/FP/TN      : %d / %d / %d / %d",
+             metrics_triage_img["tp"], metrics_triage_img["fn"],
+             metrics_triage_img["fp"], metrics_triage_img["tn"])
+    log.info("  box-level P/R    : %.3f / %.3f",
+             metrics_triage["precision"], metrics_triage["recall"])
+
+    # Tag the SPECIES ID track on the headline metrics dict for symmetry.
+    metrics["track"] = "species_id"
+    metrics["cls_threshold"] = args.cls_min_confidence
+    metrics["require_agree"] = not args.no_cross_scale_agree
+
+    # ===================================================================
+    # 3D Pareto sweep: det_threshold × cls_threshold × cross_scale_agree.
+    # Lets the analyst see the precision/recall curve instead of one point.
+    # ===================================================================
+    inference_det_floor = min(
+        (entry[8] for preds in pred_by_file.values() for entry in preds
+         if len(entry) > 8),
+        default=0.0,
+    )
+    det_thresholds = [float(x) for x in args.sweep_det.split(",") if x.strip()]
+    det_thresholds = sorted({t for t in det_thresholds if t >= inference_det_floor})
+    if inference_det_floor not in det_thresholds:
+        det_thresholds.insert(0, inference_det_floor)
+    cls_thresholds = sorted(
+        {float(x) for x in args.sweep_cls.split(",") if x.strip()}
+    )
+    log.info("===== 3D Pareto sweep =====")
+    log.info("  det_thresholds : %s (inference floor=%.2f — values below "
+             "ignored)", det_thresholds, inference_det_floor)
+    log.info("  cls_thresholds : %s", cls_thresholds)
+    sweep = sweep_3d(gt_by_file, pred_by_file,
+                     iou_thresh=args.iou, top_ks=top_ks,
+                     det_thresholds=det_thresholds,
+                     cls_thresholds=cls_thresholds,
+                     agree_values=[False, True])
+    metrics["sweep_3d"] = sweep
+    log.info("  %-6s %-6s %-6s | %-6s %-6s %-6s %-6s | %-6s %-6s %-6s | %s",
+             "det", "cls", "agree", "boxP", "boxR", "imgP", "imgR", "comm",
+             "top1", "imgF1", "")
+    for r in sweep:
+        log.info("  %.2f   %.2f   %-5s | %.3f  %.3f  %.3f  %.3f | "
+                 "%5d  %.3f  %.3f",
+                 r["det_threshold"], r["cls_threshold"],
+                 "T" if r["require_agree"] else "F",
+                 r["box_precision"], r["box_recall"],
+                 r["img_precision"], r["img_recall"],
+                 r["committed"], r["top1_acc"], r["img_f1"])
+    sweep_path = out_dir / "sweep_3d.json"
+    with open(sweep_path, "w") as f:
+        json.dump(sweep, f, indent=2)
+    log.info("wrote %s", sweep_path)
 
     # Calibration: what do the matched detections tell us about the right
     # inference-time knobs? Writes calibration_analysis.json plus a log block.
@@ -1612,31 +1769,50 @@ def main() -> int:
 
     threshold_str = f"cls_score >= {args.cls_min_confidence:.2f}"
     write_confusion(metrics, out_dir,
-                    suffix="_committed",
-                    title_qualifier=f"committed only ({threshold_str})")
-    write_confusion(metrics_all, out_dir,
-                    suffix="_all",
-                    title_qualifier="all detections (no confidence threshold)")
+                    suffix="_species_id",
+                    title_qualifier=f"SPECIES ID — committed ({threshold_str})")
+    write_confusion(metrics_triage, out_dir,
+                    suffix="_triage",
+                    title_qualifier=(
+                        f"TRIAGE — cls>={args.triage_cls:.2f}"
+                        + (" + agree" if args.triage_agree else "")))
+
+    # Build the triage-policy pred dict (parallel to pred_committed but with
+    # the looser thresholds).
+    pred_triage: dict[str, list] = defaultdict(list)
+    for fname, preds in pred_by_file.items():
+        for entry in preds:
+            cls_score = entry[3]
+            agree = entry[6] if len(entry) > 6 else True
+            if cls_score < args.triage_cls:
+                continue
+            if args.triage_agree and not agree:
+                continue
+            pred_triage[fname].append(entry)
+    log.info("triage timeseries:    kept %d preds",
+             sum(len(v) for v in pred_triage.values()))
 
     write_species_timeseries(file_to_date, gt_by_file, pred_committed,
-                             out_dir, suffix="_committed",
+                             out_dir, suffix="_species_id",
                              title_qualifier=(
-                                 f"Predictions filtered to committed "
-                                 f"({threshold_str}) — "
+                                 f"SPECIES ID — committed ({threshold_str}) — "
                                  f"{sum(len(v) for v in pred_committed.values())} "
                                  f"of {sum(len(v) for v in pred_by_file.values())} preds"))
-    write_species_timeseries(file_to_date, gt_by_file, pred_by_file,
-                             out_dir, suffix="_all",
+    write_species_timeseries(file_to_date, gt_by_file, pred_triage,
+                             out_dir, suffix="_triage",
                              title_qualifier=(
-                                 "Predictions: all detections (no confidence threshold)"))
+                                 f"TRIAGE — cls>={args.triage_cls:.2f}"
+                                 + (" + agree" if args.triage_agree else "")))
 
-    # Interactive HTML version using the committed view (cls_score >= threshold
-    # + quality=ok + cross_scale_agree). Same filter the confusion matrix
-    # uses, so the visualization matches the headline metrics.
+    # Interactive HTML for each track.
     write_interactive_timeseries(file_to_date, gt_by_file, pred_committed,
                                  fname_to_image_path, out_dir,
                                  cls_min_confidence=args.cls_min_confidence,
-                                 suffix="_committed")
+                                 suffix="_species_id")
+    write_interactive_timeseries(file_to_date, gt_by_file, pred_triage,
+                                 fname_to_image_path, out_dir,
+                                 cls_min_confidence=args.triage_cls,
+                                 suffix="_triage")
     return 0
 
 

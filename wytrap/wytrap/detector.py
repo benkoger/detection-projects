@@ -27,7 +27,7 @@ class Detector:
     # zoomed-out camera-trap deployments.
     DEFAULT_VERSION = "MDV6-yolov9-e"
 
-    def __init__(self, device: str = "auto", det_threshold: float = 0.75,
+    def __init__(self, device: str = "auto", det_threshold: float = 0.50,
                  keep_labels: tuple[str, ...] = ("animal",),
                  version: str = DEFAULT_VERSION):
         self._allowlist_ultralytics_globals()

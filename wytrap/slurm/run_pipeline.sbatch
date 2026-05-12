@@ -14,7 +14,11 @@
 #
 # Optional env-vars:
 #   SPECIES=wyoming_mammals          # default: wyoming_all
-#   DET_THRESHOLD=0.75               # MegaDetector confidence cutoff (default 0.75)
+#   DET_THRESHOLD=0.50               # MegaDetector confidence cutoff (default 0.50)
+#                                    # Records produced at this floor let eval
+#                                    # simulate any det_threshold >= floor via
+#                                    # scripts/eval_pipeline.py --sweep-det
+#                                    # without re-running inference.
 #   BATCH_SIZE=8
 #   MIN_PIXEL_SIDE=60                # drop boxes with min(w,h) < 60 px
 #   BORDER_OVERLAP_TRUNC=0.20        # mark as 'truncated' if perim overlap >= 20%
@@ -77,7 +81,7 @@ wytrap detect \
     --input  "$INPUT_DIR" \
     --output "$OUTPUT_DIR" \
     --species "${SPECIES:-wyoming_all}" \
-    --det-threshold "${DET_THRESHOLD:-0.75}" \
+    --det-threshold "${DET_THRESHOLD:-0.50}" \
     --batch-size "${BATCH_SIZE:-8}" \
     --min-pixel-side "${MIN_PIXEL_SIDE:-60}" \
     --border-overlap-truncated "${BORDER_OVERLAP_TRUNC:-0.20}" \

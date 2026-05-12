@@ -21,11 +21,12 @@ def _add_detect_parser(sub: argparse._SubParsersAction) -> None:
     p.add_argument("--species", default="wyoming_all",
                    help="Builtin name (e.g. wyoming_all, wyoming_mammals, "
                         "ynp_testbed) or path to a newline-delimited species file.")
-    p.add_argument("--det-threshold", type=float, default=0.75,
-                   help="MegaDetector confidence cutoff (default: 0.75). "
-                        "SpeciesNet-recommended range for production. "
-                        "Lower (0.50, 0.30) if your camera deployments have "
-                        "many tiny far-shot animals at the cost of more FPs.")
+    p.add_argument("--det-threshold", type=float, default=0.50,
+                   help="MegaDetector confidence cutoff (default: 0.50). "
+                        "Pick the lowest threshold you'd ever consider — "
+                        "the eval-time sweep (scripts/eval_pipeline.py "
+                        "--sweep-det) simulates any higher floor from these "
+                        "records without re-running inference.")
     p.add_argument("--cls-topk", type=int, default=5,
                    help="BioCLIP top-k labels to record per detection (default: 5).")
     p.add_argument("--batch-size", type=int, default=8,
