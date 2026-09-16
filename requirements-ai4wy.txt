@@ -1,0 +1,26 @@
+# Runtime dependencies for wytrap + the eval scripts on ARCC (ai4wy / GannettPeak).
+# Installed with `uv pip install -r requirements-ai4wy.txt` by scripts/ai4wy/setup_env.sh.
+#
+# wytrap and koger_detection themselves are installed editable with --no-deps
+# (koger_detection pins labelbox, rasterio, tensorboard, etc. that the
+# pipeline never imports; helpers.py only needs koger_detection.utils.json).
+#
+# torch/torchvision come from PyPI. Linux wheels (x86_64 and aarch64) ship
+# CUDA 13 and need NVIDIA driver >= 580 on the node.
+
+# Detection + classification
+PytorchWildlife>=1.3
+pybioclip>=2.1
+torch>=2.6
+torchvision>=0.21
+
+# wytrap core
+Pillow
+numpy
+
+# eval scripts (scripts/eval_pipeline.py, helpers/helpers.py)
+matplotlib>=3.8
+tqdm
+
+# scripts/fetch_idaho_subset.py
+requests
