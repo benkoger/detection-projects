@@ -43,7 +43,21 @@ detection per sequence and softens the "sequence label on an empty frame"
 noise. `--negatives-per-class` adds images labelled only with camera problems
 (snow on lens, foggy lens, ...) as hard negatives for the false-positive rate.
 
-## Run and evaluate
+## Everything in one job (preferred)
+
+```bash
+sbatch scripts/ai4wy/fetch_and_run_idaho.sbatch                 # 20 per class, both arms
+PER_CLASS=100 NEGATIVES=40 WHOLE_SEQ=1 sbatch scripts/ai4wy/fetch_and_run_idaho.sbatch
+```
+
+The job checks outbound HTTPS from the compute node, caches weights if
+needed, fetches the subset into `/project/uwyo-0007/data/idaho-<N>pc`, runs
+wytrap once per species list (`wyoming_all` and `species_idaho.txt` by
+default), evaluates each, and prints a side-by-side summary at the end of
+the `.out` log. If the node has no network the job exits with code 3 and the
+two-step path below applies.
+
+## Two-step path (fetch on login node, run on compute)
 
 ```bash
 sbatch scripts/ai4wy/run_idaho.sbatch                 # open-set: wyoming_all
