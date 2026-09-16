@@ -339,7 +339,8 @@ def process_folder(input_dir: str | Path,
                    multiscale: bool = True,
                    multiscale_pad: float = 2.0,
                    log: callable = print,
-                   log_file: str | Path | None = None) -> dict:
+                   log_file: str | Path | None = None,
+                   detector_version: str = Detector.DEFAULT_VERSION) -> dict:
     """Run the full pipeline over a folder of images. Returns summary dict."""
     input_dir = Path(input_dir)
     output_dir = Path(output_dir)
@@ -380,8 +381,9 @@ def process_folder(input_dir: str | Path,
     if jsonl_path:
         plog(f"jsonl aggregate   : {jsonl_path}")
 
-    plog("Loading MegaDetector v6", banner=True)
-    detector = Detector(device=device, det_threshold=det_threshold)
+    plog(f"Loading MegaDetector ({detector_version})", banner=True)
+    detector = Detector(device=device, det_threshold=det_threshold,
+                        version=detector_version)
     plog(f"detector ready (device resolved to: {detector.device}, "
          f"keep_labels={sorted(detector.keep_labels)})")
 

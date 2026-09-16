@@ -32,6 +32,12 @@ def _add_detect_parser(sub: argparse._SubParsersAction) -> None:
     p.add_argument("--batch-size", type=int, default=8,
                    help="MegaDetector batch size (default: 8). Currently unused "
                         "in the per-image loop; reserved for future batched mode.")
+    p.add_argument("--detector", default="MDV6-yolov9-e",
+                   help="MegaDetector checkpoint. MDv6 variants "
+                        "(MDV6-yolov9-c, MDV6-yolov9-e, MDV6-yolov10-c, "
+                        "MDV6-yolov10-e, MDV6-rtdetr-c) download from Zenodo; "
+                        "MDV1000-redwood, MDV5a, MDV5b download from Hugging "
+                        "Face and need no Zenodo access. Default MDV6-yolov9-e.")
     p.add_argument("--device", default="auto", choices=["auto", "cuda", "cpu"],
                    help="Compute device (default: auto).")
     p.add_argument("--recursive", action="store_true",
@@ -124,6 +130,7 @@ def _cmd_detect(args: argparse.Namespace) -> int:
         multiscale=not args.no_multiscale,
         multiscale_pad=args.multiscale_pad,
         log_file=args.log_file,
+        detector_version=args.detector,
     )
     return 0 if summary["failed"] == 0 else 1
 

@@ -121,6 +121,20 @@ chmod -R g+rwX /project/uwyo-0007/software
 git -C /project/uwyo-0007/software/detection-projects config core.sharedRepository group
 ```
 
+## Detector choice and the Zenodo problem
+
+PytorchWildlife downloads MegaDetector v6 from Zenodo only, and Zenodo goes
+down for hours at a time (it did during setup). `wytrap detect --detector`
+now also accepts `MDV1000-redwood`, `MDV5a` and `MDV5b`, which come from the
+Hugging Face mirror `agentmorris/megadetector` and load through
+PytorchWildlife's v5 class. `prefetch_weights.sh` tries Zenodo a few times,
+then always caches redwood. Both sbatch scripts default to `DETECTOR=auto`:
+MDv6 yolov9-e when its checkpoint is cached, otherwise MDv1000 redwood. Set
+`DETECTOR=...` explicitly to pin one, and record which detector a run used
+(it is printed at the top of the job log and in `wytrap.log`) since the two
+are not interchangeable when comparing numbers. Redwood is also what AddaxAI
+Connect runs, so it is the more relevant baseline for the I-80 deployment.
+
 ## Gotchas
 
 - The setup and download steps need outbound network. Run them on a login node.

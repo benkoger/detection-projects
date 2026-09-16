@@ -12,6 +12,7 @@
 #   WHOLE_SEQ=1   fetch whole sequences and evaluate per sequence
 #   ARMS          default "wyoming_all scripts/ai4wy/species_idaho.txt"
 #                 space-separated species lists; each gets its own output dir
+#   DETECTOR    default auto: MDV6-yolov9-e if cached, else MDV1000-redwood
 #   DET_THRESHOLD=0.50  AGG=max_score|vote  QUALITY=ok|all  EXTRA_ARGS="..."
 #
 # Needs outbound HTTPS from the compute node (LILA on Azure blob storage,
@@ -49,6 +50,18 @@ echo "node: $(hostname)  arch: $(uname -m)  cpus: $SLURM_CPUS_PER_TASK"
 nvidia-smi --query-gpu=name,driver_version,memory.total --format=csv
 python -c "import torch; print('torch', torch.__version__, 'cuda', torch.cuda.is_available())"
 
+# DETECTOR: auto -> MDv6 yolov9-e when its checkpoint is cached, else MDv1000
+# redwood from the Hugging Face mirror (see wytrap detect --detector).
+DETECTOR="${DETECTOR:-auto}"
+if [[ "$DETECTOR" == "auto" ]]; then
+    if [[ -s "$TORCH_HOME/hub/checkpoints/MDV6-yolov9-e-1280.pt" ]]; then
+        DETECTOR="MDV6-yolov9-e"
+    else
+        DETECTOR="MDV1000-redwood"
+    fi
+fi
+echo "detector: $DETECTOR"
+
 # ---- 0. network check
 if ! curl -sSf --max-time 20 -o /dev/null -r 0-0 \
         "https://lilawildlife.blob.core.windows.net/lila-wildlife/idaho-camera-traps/idaho-camera-traps.json.zip"; then
@@ -79,7 +92,7 @@ for SPECIES in $ARMS; do
     wytrap detect \
         --input "$DATA_DIR/images" --output "$OUT" \
         --species "$SPECIES" --det-threshold "${DET_THRESHOLD:-0.50}" \
-        --device cuda --recursive --resume \
+        --detector "$DETECTOR" --device cuda --recursive --resume \
         --jsonl "$OUT/all_records.jsonl" ${EXTRA_ARGS:-}
     echo "[job] inference ($ARM_NAME) took $(($(date +%s) - T0))s"
     python scripts/eval_image_level.py \

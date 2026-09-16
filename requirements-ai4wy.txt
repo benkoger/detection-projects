@@ -24,6 +24,8 @@ pandas
 # The `yolov5` package PytorchWildlife depends on still imports pkg_resources,
 # which setuptools removed in 81.
 setuptools<81
+# MDv1000 and MDv5 checkpoints on the Hugging Face mirror are pickled with dill.
+dill
 
 # wytrap core
 Pillow

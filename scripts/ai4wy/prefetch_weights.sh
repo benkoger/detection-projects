@@ -18,8 +18,9 @@ CKPT_DIR="$TORCH_HOME/hub/checkpoints"
 CKPT="$CKPT_DIR/MDV6-yolov9-e-1280.pt"
 MDV6_URL="https://zenodo.org/records/15398270/files/MDV6-yolov9-e-1280.pt?download=1"
 mkdir -p "$CKPT_DIR"
+MDV6_TRIES="${MDV6_TRIES:-5}"
 if [[ ! -s "$CKPT" || $(stat -c%s "$CKPT") -lt 10000000 ]]; then
-    for attempt in $(seq 1 20); do
+    for attempt in $(seq 1 "$MDV6_TRIES"); do
         echo "[prefetch] MDv6 checkpoint attempt $attempt"
         if curl -L -sS --max-time 900 -o "$CKPT.part" "$MDV6_URL" \
            && [[ $(stat -c%s "$CKPT.part") -gt 10000000 ]]; then
@@ -28,8 +29,19 @@ if [[ ! -s "$CKPT" || $(stat -c%s "$CKPT") -lt 10000000 ]]; then
         rm -f "$CKPT.part"; sleep 30
     done
 fi
-[[ -s "$CKPT" ]] || { echo "[prefetch] could not download $CKPT"; exit 1; }
-ls -la "$CKPT"
+if [[ -s "$CKPT" ]]; then
+    ls -la "$CKPT"
+else
+    echo "[prefetch] Zenodo unreachable; MDv6 not cached. Jobs will use MDV1000-redwood."
+fi
+
+# MegaDetector v1000 "redwood" from the Hugging Face mirror. Always cached,
+# so a job can run when Zenodo is down (DETECTOR=auto picks it up).
+"$VENV/bin/python" - <<'PY'
+from huggingface_hub import hf_hub_download
+p = hf_hub_download("agentmorris/megadetector", "md_v1000.0.0-redwood.pt")
+print("MDv1000-redwood cached at", p)
+PY
 
 "$VENV/bin/python" - <<'PY'
 import os
@@ -43,9 +55,12 @@ p = snapshot_download("imageomics/bioclip-2",
                                       "tokenizer*", "*.json", "*.txt"])
 print("BioCLIP 2 cached at", p)
 
-# MegaDetector v6 via wytrap's Detector on CPU (weights land in TORCH_HOME / cwd cache
-# per PytorchWildlife's downloader).
+# Load whichever detector is cached through wytrap's wrapper so a bad
+# checkpoint fails here, on the login node, not in the job.
+import os
 from wytrap.detector import Detector
-Detector(device="cpu")
-print("MegaDetector v6 weights cached")
+ckpt = os.path.join(os.environ["TORCH_HOME"], "hub", "checkpoints", "MDV6-yolov9-e-1280.pt")
+version = "MDV6-yolov9-e" if os.path.exists(ckpt) else "MDV1000-redwood"
+Detector(device="cpu", version=version)
+print(f"detector load ok: {version}")
 PY

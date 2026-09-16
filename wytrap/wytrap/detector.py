@@ -27,6 +27,18 @@ class Detector:
     # zoomed-out camera-trap deployments.
     DEFAULT_VERSION = "MDV6-yolov9-e"
 
+    # YOLOv5-family MegaDetector checkpoints mirrored on Hugging Face
+    # (agentmorris/megadetector). PytorchWildlife only knows how to fetch
+    # MDv6 from Zenodo, which goes down for hours at a time; these load
+    # through its MegaDetectorV5 class from a local file instead.
+    # MDv1000 "redwood" is the largest v1000 variant and what AddaxAI
+    # Connect runs; MDv5a is the long-standing default in the MD ecosystem.
+    HF_WEIGHTS = {
+        "MDV1000-redwood": ("agentmorris/megadetector", "md_v1000.0.0-redwood.pt"),
+        "MDV5a": ("agentmorris/megadetector", "md_v5a.0.1.pt"),
+        "MDV5b": ("agentmorris/megadetector", "md_v5b.0.1.pt"),
+    }
+
     def __init__(self, device: str = "auto", det_threshold: float = 0.50,
                  keep_labels: tuple[str, ...] = ("animal",),
                  version: str = DEFAULT_VERSION):
@@ -37,10 +49,19 @@ class Detector:
         self.device = self._resolve_device(device)
         self.det_threshold = det_threshold
         self.keep_labels = set(keep_labels)
+        self.version = version
         with self._weights_only_false():
-            self._model = pw_detection.MegaDetectorV6(
-                device=self.device, version=version,
-            )
+            if version in self.HF_WEIGHTS:
+                from huggingface_hub import hf_hub_download
+                repo, fname = self.HF_WEIGHTS[version]
+                weights = hf_hub_download(repo_id=repo, filename=fname)
+                self._model = pw_detection.MegaDetectorV5(
+                    weights=weights, device=self.device, pretrained=False,
+                )
+            else:
+                self._model = pw_detection.MegaDetectorV6(
+                    device=self.device, version=version,
+                )
 
     @staticmethod
     def _silence_ultralytics() -> None:

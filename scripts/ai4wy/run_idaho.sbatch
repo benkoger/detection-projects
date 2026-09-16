@@ -14,6 +14,7 @@
 #   EVAL=0      skip scripts/eval_image_level.py after inference
 #   SEQ_LEVEL=1 evaluate per sequence (use with --whole-sequences subsets)
 #   AGG=vote    image-level label aggregation (default max_score)
+#   DETECTOR    default auto: MDV6-yolov9-e if cached, else MDV1000-redwood
 #   DET_THRESHOLD=0.50  NO_MULTISCALE=1  TILE=1  SKIP_BAD=1  EXTRA_ARGS="..."
 #
 # Two-arm experiment (open-set vs closed-set species list):
@@ -54,6 +55,18 @@ echo "node: $(hostname)  arch: $(uname -m)"
 nvidia-smi --query-gpu=name,driver_version,memory.total --format=csv
 python -c "import torch; print('torch', torch.__version__, 'cuda', torch.cuda.is_available())"
 
+# DETECTOR: auto -> MDv6 yolov9-e when its checkpoint is cached, else MDv1000
+# redwood from the Hugging Face mirror (see wytrap detect --detector).
+DETECTOR="${DETECTOR:-auto}"
+if [[ "$DETECTOR" == "auto" ]]; then
+    if [[ -s "$TORCH_HOME/hub/checkpoints/MDV6-yolov9-e-1280.pt" ]]; then
+        DETECTOR="MDV6-yolov9-e"
+    else
+        DETECTOR="MDV1000-redwood"
+    fi
+fi
+echo "detector: $DETECTOR"
+
 SKIP_BAD_FLAG="";      [[ "${SKIP_BAD:-0}" == "1" ]]      && SKIP_BAD_FLAG="--skip-classification-when-bad"
 TILE_FLAG="";          [[ "${TILE:-0}" == "1" ]]          && TILE_FLAG="--tile"
 NO_MULTISCALE_FLAG=""; [[ "${NO_MULTISCALE:-0}" == "1" ]] && NO_MULTISCALE_FLAG="--no-multiscale"
@@ -63,6 +76,7 @@ wytrap detect \
     --output "$OUTPUT_DIR" \
     --species "${SPECIES:-wyoming_all}" \
     --det-threshold "${DET_THRESHOLD:-0.50}" \
+    --detector "$DETECTOR" \
     --device cuda \
     --recursive \
     --resume \
