@@ -71,8 +71,32 @@ if ! curl -sSf --max-time 20 -o /dev/null -r 0-0 \
 fi
 echo "[job] outbound HTTPS ok"
 
-# ---- 1. weights (no-op when already cached)
-bash scripts/ai4wy/prefetch_weights.sh
+# ---- 1. weights: only fetch what the resolved detector actually needs
+if python - "$DETECTOR" <<'PY'
+import os, sys
+from huggingface_hub import try_to_load_from_cache
+from wytrap.classifier import bioclip_cache_status
+from wytrap.detector import Detector
+det = sys.argv[1]
+if det in Detector.HF_WEIGHTS:
+    repo, fname = Detector.HF_WEIGHTS[det]
+    ok_det = try_to_load_from_cache(repo_id=repo, filename=fname) is not None
+else:
+    ok_det = os.path.getsize(os.path.join(os.environ["TORCH_HOME"], "hub", "checkpoints",
+                                          "MDV6-yolov9-e-1280.pt")) > 10_000_000 \
+             if os.path.exists(os.path.join(os.environ["TORCH_HOME"], "hub", "checkpoints",
+                                            "MDV6-yolov9-e-1280.pt")) else False
+ok_cls = bioclip_cache_status()["status"] == "cached"
+print(f"[job] weights cached: detector={ok_det} bioclip2={ok_cls}")
+sys.exit(0 if ok_det and ok_cls else 1)
+PY
+then
+    echo "[job] skipping prefetch"
+else
+    # MDV6_TRIES=0 skips Zenodo entirely when the job is going to use redwood.
+    MDV6_TRIES=$([[ "$DETECTOR" == MDV6* ]] && echo 5 || echo 0) \
+        bash scripts/ai4wy/prefetch_weights.sh
+fi
 
 # ---- 2. data
 WHOLE_FLAG=""; SEQ_FLAG=""

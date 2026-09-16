@@ -32,7 +32,11 @@ fi
 if [[ -s "$CKPT" ]]; then
     ls -la "$CKPT"
 else
-    echo "[prefetch] Zenodo unreachable; MDv6 not cached. Jobs will use MDV1000-redwood."
+    if [[ "$MDV6_TRIES" -gt 0 ]]; then
+        echo "[prefetch] Zenodo unreachable; MDv6 not cached. Jobs will use MDV1000-redwood."
+    else
+        echo "[prefetch] MDV6_TRIES=0, skipping Zenodo."
+    fi
 fi
 
 # MegaDetector v1000 "redwood" from the Hugging Face mirror. Always cached,
