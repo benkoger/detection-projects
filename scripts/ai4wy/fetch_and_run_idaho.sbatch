@@ -21,7 +21,7 @@
 # use run_idaho.sbatch.
 #SBATCH --job-name=wytrap-idaho-full
 #SBATCH --account=uwyo-0007
-#SBATCH --partition=ai4wy-1
+#SBATCH --partition=gp-1
 #SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=16
 #SBATCH --mem=64G
