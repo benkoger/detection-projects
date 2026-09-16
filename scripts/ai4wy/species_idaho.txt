@@ -1,0 +1,32 @@
+# Species list restricted to classes present in the Idaho Camera Traps
+# subset (scripts/fetch_idaho_subset.py defaults). Used for the
+# "closed-set" arm of the eval: same images scored with this list and with
+# wyoming_all, the accuracy gap is the cost of open-set confusion.
+#
+# Format: scientific | common. Common names are mapped to Idaho's coarser
+# labels by helpers.IDAHO_EVAL_MERGES at eval time.
+Odocoileus hemionus | mule deer
+Odocoileus virginianus | white-tailed deer
+Cervus canadensis | elk
+Alces alces | moose
+Antilocapra americana | pronghorn
+Ovis canadensis | bighorn sheep
+Canis lupus | gray wolf
+Canis latrans | coyote
+Vulpes vulpes | red fox
+Ursus americanus | black bear
+Ursus arctos | grizzly bear
+Puma concolor | cougar
+Lynx rufus | bobcat
+Lepus americanus | snowshoe hare
+Lepus townsendii | white-tailed jackrabbit
+Sylvilagus nuttallii | Nuttall's cottontail
+Mephitis mephitis | striped skunk
+Tamiasciurus hudsonicus | red squirrel
+Urocitellus columbianus | Columbian ground squirrel
+Meleagris gallopavo | wild turkey
+Dendragapus obscurus | dusky grouse
+Bonasa umbellus | ruffed grouse
+Bos taurus | domestic cattle
+Canis familiaris | domestic dog
+Equus caballus | domestic horse

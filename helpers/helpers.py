@@ -309,3 +309,62 @@ def rebalance_train_val(train_coco, val_coco, fraction_val=0.25, seed=0,
                 json.dump(coco, f, indent=4, separators=(",", ": "))
 
     return new_train, new_val
+
+
+# Eval-time merges for the LILA Idaho Camera Traps dataset
+# (https://lila.science/datasets/idaho-camera-traps/). Idaho labels are
+# coarser than the wytrap species lists: one "deer", one "bear", one "fox",
+# and so on. Applied to BOTH sides by scripts/eval_image_level.py, so a
+# prediction of "mule deer" and a GT of "deer" compare equal, and the GT
+# synonyms "rabbit" / "lagomorph" collapse together.
+#
+# Idaho classes with no counterpart in wyoming_all: "cattle" and "horse"
+# (no livestock prompts). scripts/ai4wy/species_idaho.txt adds them; with
+# wyoming_all they are counted as classification errors, which is the
+# honest open-set result.
+IDAHO_EVAL_MERGES = {
+    # deer
+    "mule deer": "deer",
+    "white-tailed deer": "deer",
+    "Odocoileus": "deer",
+    # bear
+    "black bear": "bear",
+    "grizzly bear": "bear",
+    "Ursidae": "bear",
+    # canids: Idaho separates wolf / coyote / fox / domestic dog
+    "gray wolf": "wolf",
+    "red fox": "fox",
+    "swift fox": "fox",
+    "gray fox": "fox",
+    # felids
+    "cougar": "mountain lion",
+    # lagomorphs (GT uses both "lagomorph" and "rabbit")
+    "rabbit": "lagomorph",
+    "snowshoe hare": "lagomorph",
+    "white-tailed jackrabbit": "lagomorph",
+    "Nuttall's cottontail": "lagomorph",
+    "American pika": "lagomorph",
+    # mustelids etc.
+    "striped skunk": "skunk",
+    # squirrels
+    "red squirrel": "squirrel",
+    "fox squirrel": "squirrel",
+    "northern flying squirrel": "squirrel",
+    "Columbian ground squirrel": "squirrel",
+    "golden-mantled ground squirrel": "squirrel",
+    "thirteen-lined ground squirrel": "squirrel",
+    "Uinta ground squirrel": "squirrel",
+    "Wyoming ground squirrel": "squirrel",
+    "rock squirrel": "squirrel",
+    "least chipmunk": "squirrel",
+    "Sciuridae": "squirrel",
+    # birds
+    "wild turkey": "turkey",
+    "dusky grouse": "grouse",
+    "ruffed grouse": "grouse",
+    "greater sage-grouse": "grouse",
+    "sharp-tailed grouse": "grouse",
+    # livestock (only present when using species_idaho.txt)
+    "domestic cattle": "cattle",
+    "domestic horse": "horse",
+}

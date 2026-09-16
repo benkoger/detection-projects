@@ -15,6 +15,9 @@
 # does not hit the $HOME quota and is shared across users of the project.
 
 set -euo pipefail
+# Files created below inherit the project group (setgid dirs); umask 002 also
+# grants the group write so any uwyo-0007 member can maintain the venv.
+umask 002
 
 PROJECT_ROOT="${PROJECT_ROOT:-/project/uwyo-0007/software}"
 VENV="${VENV:-$PROJECT_ROOT/.venv-wytrap}"
@@ -57,6 +60,11 @@ print("imports ok: PytorchWildlife, bioclip, wytrap, koger_detection")
 PY
 "$VENV/bin/wytrap" --version
 "$VENV/bin/wytrap" species --list wyoming_all --count-only
+
+# 5. Jupyter kernel so the venv shows up in Open OnDemand / JupyterLab.
+#    Kernel spec goes to ~/.local/share/jupyter/kernels/wytrap (per user).
+uv pip install ipykernel
+"$VENV/bin/python" -m ipykernel install --user --name wytrap --display-name "wytrap (ai4wy)"
 
 cat <<MSG
 

@@ -29,17 +29,83 @@ sequence, across 23 classes that overlap the Wyoming species lists plus
 `empty`. That is roughly 2,200 images at about 1.6 MB each, so 3 to 4 GB. Use `--per-class 20` for a first 10-minute smoke test.
 `labels.json` carries image-level ground truth; the LILA dataset has no boxes.
 
-## Run
+For evaluation-grade subsets, add hard negatives and whole sequences:
 
 ```bash
-sbatch scripts/ai4wy/run_idaho.sbatch
+python scripts/fetch_idaho_subset.py \
+    --out /project/uwyo-0007/data/idaho-seq --per-class 60 --whole-sequences \
+    --negatives-per-class 40
+```
+
+`--whole-sequences` downloads every frame of each sampled sequence (counts
+then refer to sequences, about 1.5 frames each), which lets the eval score
+detection per sequence and softens the "sequence label on an empty frame"
+noise. `--negatives-per-class` adds images labelled only with camera problems
+(snow on lens, foggy lens, ...) as hard negatives for the false-positive rate.
+
+## Run and evaluate
+
+```bash
+sbatch scripts/ai4wy/run_idaho.sbatch                 # open-set: wyoming_all
+SPECIES=scripts/ai4wy/species_idaho.txt \
+    OUTPUT_DIR=/project/uwyo-0007/data/idaho-subset/output-idaho \
+    sbatch scripts/ai4wy/run_idaho.sbatch             # closed-set: Idaho classes only
 tail -f logs/wytrap-idaho-<jobid>.out
 ```
 
-Outputs: one JSON per image under `output-wytrap/`, plus `all_records.jsonl`
-and `wytrap.log`. Because the Idaho labels are image-level, the box-matching
-`scripts/eval_pipeline.py` does not apply. Compare the top-1 species per image
-against `labels.json` instead.
+Each job runs `wytrap detect` then `scripts/eval_image_level.py`. Inference
+outputs: one JSON per image, `all_records.jsonl`, `wytrap.log`. Eval outputs
+under `<OUTPUT_DIR>/eval/`: `metrics.json`, `per_image.csv`,
+`confusion_matrix.csv` and `.png`, `eval.log`.
+
+The Idaho labels are per sequence with no boxes, so the box-matching
+`scripts/eval_pipeline.py` does not apply. The image-level eval reports:
+
+- detection as presence/absence over a det_score sweep, with false-positive
+  rate per negative type (empty, human, vehicle, camera problems) and per
+  location;
+- classification given the image at a fixed det_score floor: top-1/3/5
+  accuracy, accuracy versus coverage over a cls_score floor, per-class
+  precision/recall, confusion matrix, and splits by day/night and by wytrap
+  quality tag. Predictions and labels both pass through
+  `helpers.IDAHO_EVAL_MERGES` (mule deer and white-tailed deer both become
+  "deer", and so on).
+
+The two-arm run above is the first experiment worth reading: the accuracy gap
+between `wyoming_all` (148 prompts, includes species Idaho never sees) and
+`species_idaho.txt` (25 prompts) is the cost of open-set confusion, which
+bears directly on how long the I-80 species list should be. Note that
+`wyoming_all` has no livestock prompts, so Idaho's cattle and horse images can
+only be scored correctly in the closed-set arm.
+
+Re-run eval without re-running inference:
+
+```bash
+python scripts/eval_image_level.py --labels .../labels.json --pred .../output-wytrap \
+    --agg vote --sequence-level --quality all
+```
+
+## Jupyter
+
+`setup_env.sh` registers the venv as a kernel named "wytrap (ai4wy)" in
+`~/.local/share/jupyter/kernels/wytrap`. Pick it in JupyterLab from the Open
+OnDemand portal. Kernel specs are per user, so each person runs once:
+
+```bash
+/project/uwyo-0007/software/.venv-wytrap/bin/python -m ipykernel install --user \
+    --name wytrap --display-name "wytrap (ai4wy)"
+```
+
+## Sharing with the project group
+
+`/project/uwyo-0007` directories are group `uwyo-0007` with setgid, so new
+files inherit the group. `setup_env.sh` sets `umask 002` so they are also
+group-writable. If the venv was built before that line existed, fix it once:
+
+```bash
+chmod -R g+rwX /project/uwyo-0007/software
+git -C /project/uwyo-0007/software/detection-projects config core.sharedRepository group
+```
 
 ## Gotchas
 

@@ -18,6 +18,14 @@ What it writes under --out:
 Resumable: already-downloaded files are skipped, so re-running with a
 larger --per-class only fetches the new ones.
 
+Options that matter for evaluation (see scripts/eval_image_level.py):
+    --whole-sequences      download every frame of each sampled sequence
+                           (per-class counts then refer to sequences), so
+                           detection can be scored per sequence and the
+                           label-on-empty-frame noise is softened.
+    --negatives-per-class  also sample N images per camera-problem label
+                           (snow on lens, foggy lens, ...) as hard negatives.
+
 Usage (from the repo root, on a login node with outbound network):
 
     python scripts/fetch_idaho_subset.py --out /project/uwyo-0007/data/idaho-subset \\
@@ -57,13 +65,15 @@ DEFAULT_CLASSES = [
     "empty",
 ]
 
-# Labels that describe camera problems rather than content. Images carrying
-# any of these alongside a species label are skipped so GT stays clean.
-JUNK_LABELS = {
+# Labels that describe camera problems rather than content. Usable as hard
+# negatives (--negatives-per-class); never sampled as positives.
+CAMERA_PROBLEM_LABELS = {
     "snow on lens", "foggy lens", "vegetation obstruction", "malfunction",
     "misdirected", "foggy weather", "lens obscured", "sun", "tilted",
-    "unknown", "other",
 }
+# Unidentified animals. Excluded from both positives and negatives.
+AMBIGUOUS_LABELS = {"unknown", "other", "unknown canid", "unknown cervid"}
+JUNK_LABELS = CAMERA_PROBLEM_LABELS | AMBIGUOUS_LABELS
 
 
 def load_metadata(cache_dir: Path) -> dict:
@@ -83,37 +93,56 @@ def load_metadata(cache_dir: Path) -> dict:
 
 
 def sample(meta: dict, classes: list[str], per_class: int, seed: int,
-           one_per_sequence: bool) -> tuple[list[dict], dict[str, int]]:
+           one_per_sequence: bool, whole_sequences: bool = False,
+           negatives_per_class: int = 0,
+           max_frames_per_seq: int = 10) -> tuple[list[dict], dict[str, int]]:
     cats = {c["id"]: c["name"] for c in meta["categories"]}
     img_labels: dict[str, set[str]] = defaultdict(set)
     for a in meta["annotations"]:
         img_labels[a["image_id"]].add(cats[a["category_id"]])
     images = {im["id"]: im for im in meta["images"]}
+    seq_frames: dict[str, list[str]] = defaultdict(list)
+    for im in meta["images"]:
+        seq_frames[im["seq_id"]].append(im["id"])
 
+    # Single-label images per target class, plus junk-only images per junk
+    # label when hard negatives were requested.
     by_class: dict[str, list[str]] = defaultdict(list)
     for img_id, labels in img_labels.items():
-        if labels & JUNK_LABELS:
-            continue
         if len(labels) != 1:          # keep single-label images only
             continue
         (label,) = labels
-        if label in classes:
+        if label in classes and label not in JUNK_LABELS:
             by_class[label].append(img_id)
+        elif negatives_per_class and label in CAMERA_PROBLEM_LABELS:
+            by_class[label].append(img_id)
+
+    targets = [(c, per_class) for c in classes if c not in JUNK_LABELS]
+    if negatives_per_class:
+        targets += [(j, negatives_per_class) for j in sorted(CAMERA_PROBLEM_LABELS)
+                    if by_class.get(j)]
 
     rng = random.Random(seed)
     chosen: list[dict] = []
     counts: dict[str, int] = {}
-    for cls in classes:
+    for cls, n_want in targets:
         ids = by_class.get(cls, [])
         rng.shuffle(ids)
         picked, seen_seq = [], set()
         for img_id in ids:
             seq = images[img_id]["seq_id"]
-            if one_per_sequence and seq in seen_seq:
+            if (one_per_sequence or whole_sequences) and seq in seen_seq:
                 continue
             seen_seq.add(seq)
-            picked.append(img_id)
-            if len(picked) >= per_class:
+            if whole_sequences:
+                # every frame of the sequence carries the sequence label;
+                # bursts run to 40 frames, so cap and keep frame order
+                frames = sorted(seq_frames[seq],
+                                key=lambda i: images[i].get("frame_num", 0))
+                picked.extend(frames[:max_frames_per_seq])
+            else:
+                picked.append(img_id)
+            if len(seen_seq) >= n_want:
                 break
         counts[cls] = len(picked)
         for img_id in picked:
@@ -161,6 +190,15 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--allow-multi-frame", action="store_true",
                     help="allow several frames from the same sequence "
                          "(default: at most one image per sequence)")
+    ap.add_argument("--whole-sequences", action="store_true",
+                    help="download all frames of each sampled sequence; "
+                         "--per-class then counts sequences")
+    ap.add_argument("--max-frames-per-seq", type=int, default=10,
+                    help="with --whole-sequences, keep at most this many "
+                         "frames per sequence (first N by frame_num)")
+    ap.add_argument("--negatives-per-class", type=int, default=0,
+                    help="also sample this many images per camera-problem "
+                         "label (snow on lens, foggy lens, ...) as hard negatives")
     ap.add_argument("--metadata-cache", default=None,
                     help="where to keep the metadata zip (default: <out>/_meta)")
     ap.add_argument("--dry-run", action="store_true",
@@ -179,13 +217,17 @@ def main(argv: list[str] | None = None) -> int:
         classes = [c for c in classes if c in known]
 
     chosen, counts = sample(meta, classes, args.per_class, args.seed,
-                            one_per_sequence=not args.allow_multi_frame)
+                            one_per_sequence=not args.allow_multi_frame,
+                            whole_sequences=args.whole_sequences,
+                            negatives_per_class=args.negatives_per_class,
+                            max_frames_per_seq=args.max_frames_per_seq)
     print("[fetch] sampled per class:", json.dumps(counts))
     print(f"[fetch] total images: {len(chosen)}")
 
+    all_classes = list(dict.fromkeys(classes + list(counts)))
     labels = {
         "images": chosen,
-        "categories": [{"id": i, "name": c} for i, c in enumerate(classes)],
+        "categories": [{"id": i, "name": c} for i, c in enumerate(all_classes)],
         "source": "https://lila.science/datasets/idaho-camera-traps/",
         "label_level": "image (from LILA sequence-level labels; no boxes)",
     }
@@ -212,6 +254,9 @@ def main(argv: list[str] | None = None) -> int:
     manifest = {
         "per_class": args.per_class, "seed": args.seed, "classes": classes,
         "one_per_sequence": not args.allow_multi_frame,
+        "whole_sequences": args.whole_sequences,
+        "negatives_per_class": args.negatives_per_class,
+        "max_frames_per_seq": args.max_frames_per_seq,
         "counts": counts, "downloaded_ok": ok, "download_failed": failed,
         "failures": failures, "image_base": IMAGE_BASE,
     }
