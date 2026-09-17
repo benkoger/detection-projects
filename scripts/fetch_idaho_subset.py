@@ -57,11 +57,14 @@ IMAGE_BASE = ("https://lilawildlife.blob.core.windows.net/lila-wildlife/"
 
 # Classes that overlap with the Wyoming species lists in wytrap, plus
 # "empty" so the detector's false-positive rate is exercised too.
+# LILA removed every image labelled human, vehicle or domestic dog from the
+# public bucket (the metadata still lists them; downloads 404), so those are
+# not sampled. "horse" images all carry a human co-label and are gone too.
 DEFAULT_CLASSES = [
     "deer", "elk", "moose", "pronghorn", "bighorn sheep",
     "wolf", "coyote", "fox", "bear", "mountain lion", "bobcat",
     "lagomorph", "rabbit", "skunk", "squirrel", "turkey", "grouse",
-    "cattle", "domestic dog", "horse", "human", "vehicle",
+    "cattle",
     "empty",
 ]
 
@@ -72,8 +75,12 @@ CAMERA_PROBLEM_LABELS = {
     "misdirected", "foggy weather", "lens obscured", "sun", "tilted",
 }
 # Unidentified animals. Excluded from both positives and negatives.
-AMBIGUOUS_LABELS = {"unknown", "other", "unknown canid", "unknown cervid"}
+AMBIGUOUS_LABELS = {"unknown", "unknown canid", "unknown cervid"}
 JUNK_LABELS = CAMERA_PROBLEM_LABELS | AMBIGUOUS_LABELS
+# Idaho attached "other" as a second tag to nearly every rare-species image
+# (all 147 bighorn sheep, 307 of 313 rabbits, ...). It carries no content
+# information, so it is stripped before the single-label check.
+IGNORED_COLABELS = {"other"}
 
 
 def load_metadata(cache_dir: Path) -> dict:
@@ -109,6 +116,7 @@ def sample(meta: dict, classes: list[str], per_class: int, seed: int,
     # label when hard negatives were requested.
     by_class: dict[str, list[str]] = defaultdict(list)
     for img_id, labels in img_labels.items():
+        labels = labels - IGNORED_COLABELS
         if len(labels) != 1:          # keep single-label images only
             continue
         (label,) = labels
@@ -251,6 +259,15 @@ def main(argv: list[str] | None = None) -> int:
                     print(f"[fetch] {i}/{len(futs)} ok={ok} failed={failed} "
                           f"({rate:.1f} img/s)", flush=True)
 
+    if not args.dry_run:
+        failed_names = {f["file_name"] for f in failures}
+        if failed_names:
+            kept = [rec for rec in chosen if rec["file_name"] not in failed_names]
+            print(f"[fetch] dropping {len(failed_names)} failed downloads from labels.json "
+                  f"({len(kept)} images remain)")
+            labels["images"] = kept
+            (out / "labels.json").write_text(json.dumps(labels, indent=2))
+
     manifest = {
         "per_class": args.per_class, "seed": args.seed, "classes": classes,
         "one_per_sequence": not args.allow_multi_frame,
@@ -262,7 +279,10 @@ def main(argv: list[str] | None = None) -> int:
     }
     (out / "manifest.json").write_text(json.dumps(manifest, indent=2))
     print(f"[fetch] wrote {out / 'labels.json'} and {out / 'manifest.json'}")
-    return 1 if failed else 0
+    if not args.dry_run and ok == 0:
+        print("[fetch] ERROR: nothing downloaded")
+        return 1
+    return 0
 
 
 if __name__ == "__main__":
