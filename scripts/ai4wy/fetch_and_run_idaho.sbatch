@@ -13,7 +13,15 @@
 #   ARMS          default "wyoming_all scripts/ai4wy/species_idaho.txt"
 #                 space-separated species lists; each gets its own output dir
 #   DETECTOR    default auto: MDV6-yolov9-e if cached, else MDV1000-redwood
-#   DET_THRESHOLD=0.50  AGG=max_score|vote  QUALITY=ok|all  EXTRA_ARGS="..."
+#   RUN_TAG     suffix for the output folders (output-<arm>-<RUN_TAG>) so a
+#               rerun with different settings does not --resume into old results
+#   DET_THRESHOLD      inference floor (default 0.50); boxes below it are never
+#                      recorded. Run at 0.20 once to let the eval sweep simulate
+#                      any higher floor without re-running inference.
+#   DET_THRESHOLD_CLS  floor used for the classification section of the eval
+#                      (default 0.50, independent of the inference floor)
+#   DET_SWEEP          eval sweep thresholds (default 0.2..0.9)
+#   AGG=max_score|vote  QUALITY=ok|all  TILE=1  EXTRA_ARGS="..."
 #
 # Needs outbound HTTPS from the compute node (LILA on Azure blob storage,
 # Zenodo and Hugging Face for weights if not yet cached). The job checks this
@@ -110,28 +118,31 @@ echo "[job] fetch took $(($(date +%s) - T0))s -> $DATA_DIR"
 # ---- 3. inference + eval, one arm at a time
 for SPECIES in $ARMS; do
     ARM_NAME=$(basename "$SPECIES" .txt)
-    OUT="$DATA_DIR/output-$ARM_NAME"
+    OUT="$DATA_DIR/output-$ARM_NAME${RUN_TAG:+-$RUN_TAG}"
     echo "===== arm: $SPECIES -> $OUT ====="
     T0=$(date +%s)
+    TILE_FLAG=""; [[ "${TILE:-0}" == "1" ]] && TILE_FLAG="--tile"
     wytrap detect \
         --input "$DATA_DIR/images" --output "$OUT" \
-        --species "$SPECIES" --det-threshold "${DET_THRESHOLD:-0.50}" \
+        --species "$SPECIES" --det-threshold "${DET_THRESHOLD:-0.50}" $TILE_FLAG \
         --detector "$DETECTOR" --device cuda --recursive --resume \
         --jsonl "$OUT/all_records.jsonl" ${EXTRA_ARGS:-}
     echo "[job] inference ($ARM_NAME) took $(($(date +%s) - T0))s"
     python scripts/eval_image_level.py \
         --labels "$DATA_DIR/labels.json" --pred "$OUT" \
-        --det-threshold "${DET_THRESHOLD:-0.50}" \
+        --det-threshold "${DET_THRESHOLD_CLS:-0.50}" \
+        --det-sweep "${DET_SWEEP:-0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9}" \
         --agg "${AGG:-max_score}" --quality "${QUALITY:-ok}" $SEQ_FLAG
 done
 
 # ---- 4. side-by-side summary
-python - "$DATA_DIR" $ARMS <<'PY'
+python - "$DATA_DIR" "${RUN_TAG:-}" $ARMS <<'PY'
 import json, sys, pathlib
-data = pathlib.Path(sys.argv[1])
+data = pathlib.Path(sys.argv[1]); tag = sys.argv[2]
 print("\n===== summary =====")
-for sp in sys.argv[2:]:
-    m = json.loads((data / f"output-{pathlib.Path(sp).stem}" / "eval" / "metrics.json").read_text())
+for sp in sys.argv[3:]:
+    name = f"output-{pathlib.Path(sp).stem}" + (f"-{tag}" if tag else "")
+    m = json.loads((data / name / "eval" / "metrics.json").read_text())
     best = max(m["detection"], key=lambda r: r["f1"])
     c = m["classification"]
     acc = c.get("accuracy", {})
