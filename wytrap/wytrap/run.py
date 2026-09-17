@@ -340,7 +340,8 @@ def process_folder(input_dir: str | Path,
                    multiscale_pad: float = 2.0,
                    log: callable = print,
                    log_file: str | Path | None = None,
-                   detector_version: str = Detector.DEFAULT_VERSION) -> dict:
+                   detector_version: str = Detector.DEFAULT_VERSION,
+                   det_imgsz: int | None = None) -> dict:
     """Run the full pipeline over a folder of images. Returns summary dict."""
     input_dir = Path(input_dir)
     output_dir = Path(output_dir)
@@ -383,9 +384,9 @@ def process_folder(input_dir: str | Path,
 
     plog(f"Loading MegaDetector ({detector_version})", banner=True)
     detector = Detector(device=device, det_threshold=det_threshold,
-                        version=detector_version)
+                        version=detector_version, imgsz=det_imgsz)
     plog(f"detector ready (device resolved to: {detector.device}, "
-         f"keep_labels={sorted(detector.keep_labels)})")
+         f"imgsz={detector.imgsz}, keep_labels={sorted(detector.keep_labels)})")
 
     plog("Loading BioCLIP-2 classifier", banner=True)
     cache_info = bioclip_cache_status()

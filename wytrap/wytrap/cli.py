@@ -38,6 +38,11 @@ def _add_detect_parser(sub: argparse._SubParsersAction) -> None:
                         "MDV6-yolov10-e, MDV6-rtdetr-c) download from Zenodo; "
                         "MDV1000-redwood, MDV5a, MDV5b download from Hugging "
                         "Face and need no Zenodo access. Default MDV6-yolov9-e.")
+    p.add_argument("--det-imgsz", type=int, default=None,
+                   help="Detector inference resolution, long side in px "
+                        "(multiple of 32). Default is the model's native "
+                        "1280. Frames are 2000-4000 px wide, so 1920 or "
+                        "2560 recovers small animals at 2-4x detector cost.")
     p.add_argument("--device", default="auto", choices=["auto", "cuda", "cpu"],
                    help="Compute device (default: auto).")
     p.add_argument("--recursive", action="store_true",
@@ -131,6 +136,7 @@ def _cmd_detect(args: argparse.Namespace) -> int:
         multiscale_pad=args.multiscale_pad,
         log_file=args.log_file,
         detector_version=args.detector,
+        det_imgsz=args.det_imgsz,
     )
     return 0 if summary["failed"] == 0 else 1
 

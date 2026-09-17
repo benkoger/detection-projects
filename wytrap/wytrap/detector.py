@@ -41,7 +41,8 @@ class Detector:
 
     def __init__(self, device: str = "auto", det_threshold: float = 0.50,
                  keep_labels: tuple[str, ...] = ("animal",),
-                 version: str = DEFAULT_VERSION):
+                 version: str = DEFAULT_VERSION,
+                 imgsz: int | None = None):
         self._allowlist_ultralytics_globals()
         self._silence_ultralytics()
         from PytorchWildlife.models import detection as pw_detection
@@ -62,6 +63,32 @@ class Detector:
                 self._model = pw_detection.MegaDetectorV6(
                     device=self.device, version=version,
                 )
+        self.imgsz = self._set_imgsz(imgsz)
+
+    def _set_imgsz(self, imgsz: int | None) -> int:
+        """Override the detector's inference resolution (long side, px).
+
+        PytorchWildlife letterboxes every image to IMAGE_SIZE=1280 on the
+        long side. Camera-trap frames are 2000-4000 px wide, so an 80 px
+        squirrel is ~30 px by the time the network sees it and is missed.
+        MegaDetector is fully convolutional, so it accepts larger inputs;
+        1920 or 2560 trades ~2-4x detector time for small-object recall.
+        Must be a multiple of 32.
+        """
+        native = int(getattr(self._model, "IMAGE_SIZE", 1280))
+        if imgsz is None or imgsz == native:
+            return native
+        if imgsz % 32:
+            raise ValueError(f"imgsz must be a multiple of 32, got {imgsz}")
+        m = self._model
+        m.IMAGE_SIZE = imgsz
+        if hasattr(m, "predictor"):                  # MDv6 (ultralytics)
+            m.predictor.args.imgsz = imgsz
+        elif hasattr(m, "transform"):                # MDv5 / MDv1000 (yolov5)
+            from PytorchWildlife.data import transforms as pw_trans
+            m.transform = pw_trans.MegaDetector_v5_Transform(
+                target_size=imgsz, stride=getattr(m, "STRIDE", 32))
+        return imgsz
 
     @staticmethod
     def _silence_ultralytics() -> None:

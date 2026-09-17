@@ -21,7 +21,11 @@
 #   DET_THRESHOLD_CLS  floor used for the classification section of the eval
 #                      (default 0.50, independent of the inference floor)
 #   DET_SWEEP          eval sweep thresholds (default 0.2..0.9)
-#   AGG=max_score|vote  QUALITY=ok|all  TILE=1  EXTRA_ARGS="..."
+#   DET_IMGSZ   detector input resolution, long side px (default native 1280;
+#               try 1920 or 2560 for small animals)
+#   TILE=1      SAHI tiling; TILE_SIZE default 1280 here (wytrap's own default
+#               of 480 upscales each tile to 1280 and hurt on YNP)
+#   AGG=max_score|vote  QUALITY=ok|all  EXTRA_ARGS="..."
 #
 # Needs outbound HTTPS from the compute node (LILA on Azure blob storage,
 # Zenodo and Hugging Face for weights if not yet cached). The job checks this
@@ -121,10 +125,11 @@ for SPECIES in $ARMS; do
     OUT="$DATA_DIR/output-$ARM_NAME${RUN_TAG:+-$RUN_TAG}"
     echo "===== arm: $SPECIES -> $OUT ====="
     T0=$(date +%s)
-    TILE_FLAG=""; [[ "${TILE:-0}" == "1" ]] && TILE_FLAG="--tile"
+    TILE_FLAG=""; [[ "${TILE:-0}" == "1" ]] && TILE_FLAG="--tile --tile-size ${TILE_SIZE:-1280}"
+    IMGSZ_FLAG=""; [[ -n "${DET_IMGSZ:-}" ]] && IMGSZ_FLAG="--det-imgsz $DET_IMGSZ"
     wytrap detect \
         --input "$DATA_DIR/images" --output "$OUT" \
-        --species "$SPECIES" --det-threshold "${DET_THRESHOLD:-0.50}" $TILE_FLAG \
+        --species "$SPECIES" --det-threshold "${DET_THRESHOLD:-0.50}" $TILE_FLAG $IMGSZ_FLAG \
         --detector "$DETECTOR" --device cuda --recursive --resume \
         --jsonl "$OUT/all_records.jsonl" ${EXTRA_ARGS:-}
     echo "[job] inference ($ARM_NAME) took $(($(date +%s) - T0))s"
