@@ -27,7 +27,7 @@
 # ARCC docs, so this asks for 8h).
 #SBATCH --job-name=wytrap-idaho
 #SBATCH --account=uwyo-0007
-#SBATCH --partition=ai4wy-1
+#SBATCH --partition=gp-1,gp-2
 #SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=64G

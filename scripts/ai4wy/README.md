@@ -1,7 +1,7 @@
 # Running wytrap on ai4wy (GannettPeak)
 
 GannettPeak is ARCC's AI cluster: 36 Grace Hopper nodes (ARM Neoverse V2 CPUs,
-H100 GPUs), Slurm partitions `ai4wy-1` (1 GPU/node) and `ai4wy-2` (2 GPUs/node),
+H100 GPUs), Slurm partitions `gp-1` (1 GPU/node) and `gp-2` (2 GPUs/node; the ARCC docs call them ai4wy-1/2 but sinfo says gp-1/2),
 login node `ai4wy-log2` or the Open OnDemand portal at https://ai4wy.arcc.uwyo.edu.
 Every job needs `--account`. Nothing CUDA-related works without `--gres=gpu:N`.
 
