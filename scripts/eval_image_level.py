@@ -4,9 +4,9 @@ Companion to scripts/eval_pipeline.py for datasets like LILA Idaho Camera
 Traps, whose labels are per sequence and carry no bounding boxes. Two
 questions are answered:
 
-  1. Detection as presence/absence. For every image, "did wytrap keep at
-     least one animal box at det_score >= t?" is scored against "does the
-     label name an animal?". Swept over t. Empty images, camera-problem
+  1. Detection as presence/absence. For every image, "did wytrap produce
+     at least one animal box at det_score >= t?" (any quality tag) is scored
+     against "does the label name an animal?". Swept over t. Empty images, camera-problem
      labels (snow on lens, ...), humans and vehicles all count as negatives
      (the detector only keeps 'animal' boxes), and false-positive rate is
      also reported per negative type and per location.
@@ -178,7 +178,9 @@ def evaluate(items: list[dict], args, merges: dict[str, str]) -> dict:
         fp_by_loc: Counter = Counter()
         n_by_loc: Counter = Counter()
         for it in items:
-            has = any(b["det_score"] >= t for b in it["boxes"])
+            # Presence/absence: any box counts, whatever its quality tag. A
+            # truncated or low-pixel animal is still an animal in the frame.
+            has = any(b["det_score"] >= t for b in it["all_boxes"])
             if it["is_animal"]:
                 tp += has
                 fn += not has
@@ -335,7 +337,8 @@ def write_per_image(items: list[dict], cls_by_key: dict[str, dict], t: float,
             w.writerow([
                 it["key"], it["seq_id"], it["location"], it["hour"], it["gt"],
                 int(it["is_animal"]), len(boxes),
-                round(max((b["det_score"] for b in it["boxes"]), default=0.0), 4),
+                round(max((b["det_score"] for b in it["all_boxes"]), default=0.0), 4),
+                sum(b["det_score"] >= t for b in it["all_boxes"]),
                 c["pred"] if c else "", round(c["cls_score"], 4) if c else "",
                 "|".join(c["topk"]) if c else "",
                 int(c["gt"] == c["pred"]) if c else "",
