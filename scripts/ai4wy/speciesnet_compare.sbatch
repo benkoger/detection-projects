@@ -47,9 +47,12 @@ source "$VENV/bin/activate"
 cd "$SLURM_SUBMIT_DIR"
 echo "node: $(hostname)"; nvidia-smi --query-gpu=name,driver_version --format=csv,noheader
 [[ -f "$WYTRAP_RECORDS" ]] || { echo "missing $WYTRAP_RECORDS (run the detector sweep first)"; exit 2; }
+# Name outputs after the source run so different detectors never share a folder.
+SRC_TAG=$(basename "$(dirname "$WYTRAP_RECORDS")" | sed 's/^output-//')
+echo "source boxes: $SRC_TAG ($WYTRAP_RECORDS)"
 
 echo "===== arm clf: SpeciesNet classifier on wytrap boxes ====="
-OUT_CLF="$DATA_DIR/output-speciesnet-clf"
+OUT_CLF="$DATA_DIR/output-speciesnet-clf-$SRC_TAG"
 python scripts/run_speciesnet_arms.py classifier \
     --wytrap-records "$WYTRAP_RECORDS" --output "$OUT_CLF" --model "$SN_MODEL"
 python scripts/eval_image_level.py --labels "$DATA_DIR/labels.json" --pred "$OUT_CLF" \
@@ -63,8 +66,8 @@ python scripts/run_speciesnet_arms.py ensemble \
 python scripts/eval_image_level.py --labels "$DATA_DIR/labels.json" --pred "$OUT_ENS" \
     --det-threshold "${DET_THRESHOLD_CLS:-0.50}" --det-sweep 0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9
 
-echo "===== arm ens6: SpeciesNet ensemble on wytrap's MDv6 boxes ====="
-OUT_ENS6="$DATA_DIR/output-speciesnet-ens-mdv6${NO_GEOFENCE:+-nogeo}"
+echo "===== arm ens6: SpeciesNet ensemble on the wytrap run's boxes ($SRC_TAG) ====="
+OUT_ENS6="$DATA_DIR/output-speciesnet-ens-$SRC_TAG${NO_GEOFENCE:+-nogeo}"
 python scripts/run_speciesnet_arms.py ensemble \
     --images "$DATA_DIR/images" --output "$OUT_ENS6" --model "$SN_MODEL" \
     --detections-from "$WYTRAP_RECORDS" \
@@ -72,20 +75,20 @@ python scripts/run_speciesnet_arms.py ensemble \
 python scripts/eval_image_level.py --labels "$DATA_DIR/labels.json" --pred "$OUT_ENS6" \
     --det-threshold "${DET_THRESHOLD_CLS:-0.50}" --det-sweep 0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9
 
-python - "$DATA_DIR" "$(dirname "$WYTRAP_RECORDS")" "$OUT_CLF" "$OUT_ENS" "$OUT_ENS6" <<'PY'
+python - "$DATA_DIR" "$(dirname "$WYTRAP_RECORDS")" "$OUT_CLF" "$OUT_ENS" "$OUT_ENS6" "$SRC_TAG" <<'PY'
 import json, sys, pathlib
-data = pathlib.Path(sys.argv[1])
-runs = [("wytrap (MDv6 + BioCLIP 2)", sys.argv[2]), ("MDv6 + SpeciesNet clf", sys.argv[3]),
-        ("SpeciesNet ensemble (MDv5a)", sys.argv[4]), ("SpeciesNet ensemble on MDv6", sys.argv[5])]
+data = pathlib.Path(sys.argv[1]); tag = sys.argv[6]
+runs = [(f"wytrap BioCLIP 2 [{tag}]", sys.argv[2]), (f"SpeciesNet raw clf [{tag} boxes]", sys.argv[3]),
+        ("SpeciesNet ensemble (own MDv5a)", sys.argv[4]), (f"SpeciesNet ensemble [{tag} boxes]", sys.argv[5])]
 print("\n===== BioCLIP 2 vs SpeciesNet (det floor 0.50; classification on quality-ok boxes) =====")
-print(f"{'run':>30} {'P':>6} {'R':>6} {'F1':>6} {'n_cls':>6} {'top1':>6} {'top3':>6}  acc@cov>=0.8")
+print(f"{'run':>40} {'P':>6} {'R':>6} {'F1':>6} {'n_cls':>6} {'top1':>6} {'top3':>6}  acc@cov>=0.8")
 for name, d in runs:
     m = json.loads((pathlib.Path(d) / "eval" / "metrics.json").read_text())
     det = next(r for r in m["detection"] if abs(r["det_threshold"] - 0.5) < 1e-6)
     c = m["classification"]; acc = c.get("accuracy", {})
     cov = [r for r in c.get("accuracy_vs_coverage", []) if r["coverage"] >= 0.8]
     best = max(cov, key=lambda r: r["top1_accuracy"]) if cov else None
-    print(f"{name:>30} {det['precision']:6.3f} {det['recall']:6.3f} {det['f1']:6.3f} "
+    print(f"{name:>40} {det['precision']:6.3f} {det['recall']:6.3f} {det['f1']:6.3f} "
           f"{c.get('animal_images_with_detection', 0):6d} {acc.get('top1', 0):6.3f} {acc.get('top3', 0):6.3f}  "
           + (f"{best['top1_accuracy']:.3f} @ cov {best['coverage']:.2f} (conf>={best['cls_min_conf']})" if best else "-"))
 PY

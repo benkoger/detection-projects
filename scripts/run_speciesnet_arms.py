@@ -168,6 +168,11 @@ def run_ensemble_arm(args) -> int:
     model = SpeciesNet(args.model, components="all", geofence=not args.no_geofence)
     _log(f"SpeciesNet loaded in {time.time() - t0:.0f}s (geofence={not args.no_geofence})")
     raw_json = out_dir / "speciesnet_predictions.json"
+    # SpeciesNet treats an existing predictions_json as a resume checkpoint
+    # and skips every image already in it, which silently reused stale
+    # results when the same output dir was run with different boxes.
+    if raw_json.exists():
+        raw_json.unlink()
     t0 = time.time()
     if args.detections_from:
         # Supplied detections (wytrap boxes) in SpeciesNet's own detector

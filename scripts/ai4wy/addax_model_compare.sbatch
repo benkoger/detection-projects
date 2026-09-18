@@ -40,7 +40,7 @@ echo "node: $(hostname)"; nvidia-smi --query-gpu=name,driver_version --format=cs
 OUTS=()
 for M in $MODELS; do
     TAG=$(basename "$M" | tr '[:upper:]' '[:lower:]')
-    OUT="$DATA_DIR/output-addax-$TAG"
+    OUT="$DATA_DIR/output-addax-$TAG-$(basename "$(dirname "$WYTRAP_RECORDS")" | sed 's/^output-//')"
     echo "===== $M -> $OUT ====="
     python scripts/run_addax_model_arm.py --model "$M" --wytrap-records "$WYTRAP_RECORDS" --output "$OUT"
     python scripts/eval_image_level.py --labels "$DATA_DIR/labels.json" --pred "$OUT" \
@@ -51,10 +51,11 @@ done
 python - "$(dirname "$WYTRAP_RECORDS")" "$DATA_DIR" "${OUTS[@]}" <<'PY'
 import json, sys, pathlib
 wy, data = sys.argv[1], pathlib.Path(sys.argv[2])
-rows = [("wytrap (BioCLIP 2)", wy)]
-for extra, label in [("output-speciesnet-clf", "SpeciesNet raw clf, same boxes"),
-                     ("output-speciesnet-ens-mdv6", "SpeciesNet ensemble, same boxes"),
-                     ("output-speciesnet-ens", "SpeciesNet ensemble (MDv5a)")]:
+tag = pathlib.Path(wy).name.replace("output-", "")
+rows = [(f"wytrap BioCLIP 2 [{tag}]", wy)]
+for extra, label in [(f"output-speciesnet-clf-{tag}", "SpeciesNet raw clf, same boxes"),
+                     (f"output-speciesnet-ens-{tag}", "SpeciesNet ensemble, same boxes"),
+                     ("output-speciesnet-ens", "SpeciesNet ensemble (own MDv5a)")]:
     if (data / extra / "eval" / "metrics.json").exists():
         rows.append((label, str(data / extra)))
 rows += [(a.split("=", 1)[0].split("/")[-1], a.split("=", 1)[1]) for a in sys.argv[3:]]
