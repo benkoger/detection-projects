@@ -4,8 +4,10 @@
 #   arm clf: SpeciesNet classifier on the MegaDetector v6 boxes of an existing
 #            wytrap run (default: the det020 sweep output). Only the classifier
 #            differs from wytrap.
-#   arm ens: SpeciesNet as shipped (MDv5a + classifier + geofence USA/ID),
-#            i.e. what AddaxAI Connect runs.
+#   arm ens: SpeciesNet as shipped (MDv5a + classifier + geofence USA/ID).
+#   arm ens6: SpeciesNet classifier + roll-up + geofence on the MDv6 boxes of
+#            the wytrap run, i.e. AddaxAI Connect's pipeline shape with the
+#            same detector as wytrap. Differs from wytrap only after detection.
 #
 # Submit from the repo root after scripts/ai4wy/setup_env.sh has installed
 # speciesnet (re-run it after pulling):
@@ -61,11 +63,20 @@ python scripts/run_speciesnet_arms.py ensemble \
 python scripts/eval_image_level.py --labels "$DATA_DIR/labels.json" --pred "$OUT_ENS" \
     --det-threshold "${DET_THRESHOLD_CLS:-0.50}" --det-sweep 0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9
 
-python - "$DATA_DIR" "$(dirname "$WYTRAP_RECORDS")" "$OUT_CLF" "$OUT_ENS" <<'PY'
+echo "===== arm ens6: SpeciesNet ensemble on wytrap's MDv6 boxes ====="
+OUT_ENS6="$DATA_DIR/output-speciesnet-ens-mdv6${NO_GEOFENCE:+-nogeo}"
+python scripts/run_speciesnet_arms.py ensemble \
+    --images "$DATA_DIR/images" --output "$OUT_ENS6" --model "$SN_MODEL" \
+    --detections-from "$WYTRAP_RECORDS" \
+    --country "${COUNTRY:-USA}" --admin1 "${ADMIN1:-ID}" $GEO_FLAG
+python scripts/eval_image_level.py --labels "$DATA_DIR/labels.json" --pred "$OUT_ENS6" \
+    --det-threshold "${DET_THRESHOLD_CLS:-0.50}" --det-sweep 0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9
+
+python - "$DATA_DIR" "$(dirname "$WYTRAP_RECORDS")" "$OUT_CLF" "$OUT_ENS" "$OUT_ENS6" <<'PY'
 import json, sys, pathlib
 data = pathlib.Path(sys.argv[1])
-runs = [("wytrap (BioCLIP 2)", sys.argv[2]), ("SpeciesNet clf on same boxes", sys.argv[3]),
-        ("SpeciesNet ensemble", sys.argv[4])]
+runs = [("wytrap (MDv6 + BioCLIP 2)", sys.argv[2]), ("MDv6 + SpeciesNet clf", sys.argv[3]),
+        ("SpeciesNet ensemble (MDv5a)", sys.argv[4]), ("SpeciesNet ensemble on MDv6", sys.argv[5])]
 print("\n===== BioCLIP 2 vs SpeciesNet (det floor 0.50; classification on quality-ok boxes) =====")
 print(f"{'run':>30} {'P':>6} {'R':>6} {'F1':>6} {'n_cls':>6} {'top1':>6} {'top3':>6}  acc@cov>=0.8")
 for name, d in runs:

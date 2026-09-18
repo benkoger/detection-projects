@@ -8,8 +8,11 @@ Two arms, both scored by scripts/eval_image_level.py exactly like a wytrap run:
                classified by SpeciesNet. Isolates BioCLIP 2 vs SpeciesNet.
 
   ensemble     SpeciesNet as shipped: its own MegaDetector v5a, classifier,
-               taxonomy roll-up and geofence (country/admin1). This is what
-               AddaxAI Connect runs in production.
+               taxonomy roll-up and geofence (country/admin1). With
+               --detections-from <wytrap all_records.jsonl> the detector step
+               is replaced by the wytrap run's boxes (e.g. MegaDetector v6),
+               so everything after detection is SpeciesNet's and everything
+               up to it is shared with wytrap.
 
 SpeciesNet labels are 'uuid;class;order;family;genus;species;common'. They are
 mapped to the Idaho vocabulary by taxonomy (genus odocoileus -> deer, family
@@ -24,6 +27,7 @@ Usage:
 
     python scripts/run_speciesnet_arms.py ensemble \\
         --images /path/images --output /path/output-speciesnet-ens \\
+        [--detections-from /path/output-wytrap/all_records.jsonl] \\
         [--country USA --admin1 ID] [--no-geofence]
 """
 
@@ -189,11 +193,49 @@ def run_ensemble_arm(args) -> int:
     _log(f"SpeciesNet loaded in {time.time() - t0:.0f}s (geofence={not args.no_geofence})")
     raw_json = out_dir / "speciesnet_predictions.json"
     t0 = time.time()
-    preds = model.predict(filepaths=files, country=args.country, admin1_region=args.admin1,
-                          batch_size=args.batch_size, progress_bars=False,
-                          predictions_json=str(raw_json))
-    if preds is None:
-        preds = json.loads(raw_json.read_text())
+    if args.detections_from:
+        # Supplied detections (wytrap boxes) in SpeciesNet's own detector
+        # output format, highest conf first: the always-crop classifier
+        # crops to bboxes[0].
+        dd: dict[str, dict] = {}
+        for line in open(args.detections_from):
+            if not line.strip():
+                continue
+            r = json.loads(line)
+            W, H = r["image_size"]
+            dets = sorted(r.get("detections") or [], key=lambda d: -d["det_score"])
+            dd[r["image_path"]] = {"filepath": r["image_path"], "detections": [
+                {"category": "1", "label": "animal", "conf": float(d["det_score"]),
+                 "bbox": [d["box_xyxy"][0] / W, d["box_xyxy"][1] / H,
+                          (d["box_xyxy"][2] - d["box_xyxy"][0]) / W,
+                          (d["box_xyxy"][3] - d["box_xyxy"][1]) / H]}
+                for d in dets]}
+        missing = [f for f in files if f not in dd]
+        if missing:
+            _log(f"WARNING {len(missing)} images have no wytrap record; treating as no detections")
+            for f in missing:
+                dd[f] = {"filepath": f, "detections": []}
+        _log(f"using {sum(len(v['detections']) for v in dd.values())} supplied boxes "
+             f"from {args.detections_from} instead of MDv5a")
+        cls = model.classify(filepaths=files, detections_dict=dd, country=args.country,
+                             admin1_region=args.admin1, batch_size=args.batch_size,
+                             progress_bars=False)
+        cls_dict = {p["filepath"]: p for p in cls["predictions"]}
+        preds = model.ensemble_from_past_runs(
+            filepaths=files, classifications_dict=cls_dict, detections_dict=dd,
+            country=args.country, admin1_region=args.admin1, progress_bars=False,
+            predictions_json=str(raw_json))
+        if preds is None:
+            preds = json.loads(raw_json.read_text())
+        # ensemble_from_past_runs may not echo detections; take them from dd
+        for p in preds["predictions"]:
+            p.setdefault("detections", dd[p["filepath"]]["detections"])
+    else:
+        preds = model.predict(filepaths=files, country=args.country, admin1_region=args.admin1,
+                              batch_size=args.batch_size, progress_bars=False,
+                              predictions_json=str(raw_json))
+        if preds is None:
+            preds = json.loads(raw_json.read_text())
     _log(f"predict done in {time.time() - t0:.0f}s, raw output at {raw_json}")
 
     n_boxes = 0
@@ -260,6 +302,8 @@ def main(argv: list[str] | None = None) -> int:
     e.add_argument("--images", required=True)
     e.add_argument("--output", required=True)
     e.add_argument("--model", default=DEFAULT_MODEL)
+    e.add_argument("--detections-from", default=None,
+                   help="wytrap all_records.jsonl whose boxes replace SpeciesNet's MDv5a")
     e.add_argument("--country", default="USA")
     e.add_argument("--admin1", default="ID")
     e.add_argument("--no-geofence", action="store_true")
