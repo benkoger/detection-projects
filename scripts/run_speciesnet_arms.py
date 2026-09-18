@@ -50,23 +50,7 @@ from wytrap.run import IMAGE_EXTS, assess_box_quality  # noqa: E402
 # Mirror used by AddaxAI Connect; avoids Kaggle credentials.
 DEFAULT_MODEL = "hf:Addax-Data-Science/SPECIESNET-v4-0-2-A"
 
-# taxonomy-driven mapping to Idaho classes: (level, value) -> idaho label
-GENUS_TO_IDAHO = {
-    "odocoileus": "deer", "cervus": "elk", "alces": "moose",
-    "antilocapra": "pronghorn", "ovis": "bighorn sheep",
-    "ursus": "bear", "vulpes": "fox", "urocyon": "fox",
-    "puma": "mountain lion", "mephitis": "skunk",
-    "bos": "cattle", "equus": "horse", "meleagris": "turkey",
-    "dendragapus": "grouse", "bonasa": "grouse", "tympanuchus": "grouse",
-    "centrocercus": "grouse", "lagopus": "grouse", "falcipennis": "grouse",
-}
-SPECIES_TO_IDAHO = {  # genus+species overrides where the genus is ambiguous
-    ("canis", "lupus"): "wolf", ("canis", "latrans"): "coyote",
-    ("canis", "familiaris"): "domestic dog", ("lynx", "rufus"): "bobcat",
-    ("homo", "sapiens"): "human",
-}
-FAMILY_TO_IDAHO = {"leporidae": "lagomorph", "sciuridae": "squirrel", "ursidae": "bear"}
-ORDER_TO_IDAHO = {"lagomorpha": "lagomorph"}
+from helpers.helpers import taxonomy_to_idaho  # noqa: E402
 
 
 def speciesnet_label_to_names(label: str) -> tuple[str, str]:
@@ -76,15 +60,7 @@ def speciesnet_label_to_names(label: str) -> tuple[str, str]:
         return label, label
     _, cls, order, family, genus, species, common = parts
     sci = " ".join(p for p in (genus, species) if p) or common
-    if (genus, species) in SPECIES_TO_IDAHO:
-        return SPECIES_TO_IDAHO[(genus, species)], sci
-    if genus in GENUS_TO_IDAHO:
-        return GENUS_TO_IDAHO[genus], sci
-    if family in FAMILY_TO_IDAHO:
-        return FAMILY_TO_IDAHO[family], sci
-    if order in ORDER_TO_IDAHO:
-        return ORDER_TO_IDAHO[order], sci
-    return common, sci
+    return taxonomy_to_idaho(cls, order, family, genus, species, common), sci
 
 
 def _topk(classes: list[str], scores: list[float]) -> list[dict]:

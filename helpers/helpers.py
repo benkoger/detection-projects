@@ -368,3 +368,44 @@ IDAHO_EVAL_MERGES = {
     "domestic cattle": "cattle",
     "domestic horse": "horse",
 }
+
+
+# Taxonomy-driven mapping of third-party classifier labels (SpeciesNet, the
+# AddaxAI model zoo) onto the Idaho eval vocabulary. Looked up in order:
+# (genus, species) -> genus -> family -> order; anything unmatched keeps the
+# model's own common name, lower-cased, which IDAHO_EVAL_MERGES may still map.
+IDAHO_SPECIES_TO_CLASS = {
+    ("canis", "lupus"): "wolf", ("canis", "lupis"): "wolf",   # WUSA typo
+    ("canis", "latrans"): "coyote", ("canis", "familiaris"): "domestic dog",
+    ("lynx", "rufus"): "bobcat", ("homo", "sapiens"): "human",
+}
+IDAHO_GENUS_TO_CLASS = {
+    "odocoileus": "deer", "cervus": "elk", "alces": "moose",
+    "antilocapra": "pronghorn", "ovis": "bighorn sheep",
+    "ursus": "bear", "vulpes": "fox", "urocyon": "fox",
+    "puma": "mountain lion", "mephitis": "skunk", "spilogale": "skunk",
+    "bos": "cattle", "equus": "horse", "meleagris": "turkey",
+    "dendragapus": "grouse", "bonasa": "grouse", "tympanuchus": "grouse",
+    "centrocercus": "grouse", "lagopus": "grouse", "falcipennis": "grouse",
+}
+IDAHO_FAMILY_TO_CLASS = {
+    "leporidae": "lagomorph", "sciuridae": "squirrel", "ursidae": "bear",
+    "mephitidae": "skunk",
+}
+IDAHO_ORDER_TO_CLASS = {"lagomorpha": "lagomorph"}
+
+
+def taxonomy_to_idaho(cls: str = "", order: str = "", family: str = "",
+                      genus: str = "", species: str = "", common: str = "") -> str:
+    """Map one taxon (any fields may be empty) to an Idaho eval label."""
+    g, s = (genus or "").lower().strip(), (species or "").lower().strip()
+    f, o = (family or "").lower().strip(), (order or "").lower().strip()
+    if (g, s) in IDAHO_SPECIES_TO_CLASS:
+        return IDAHO_SPECIES_TO_CLASS[(g, s)]
+    if g in IDAHO_GENUS_TO_CLASS:
+        return IDAHO_GENUS_TO_CLASS[g]
+    if f in IDAHO_FAMILY_TO_CLASS:
+        return IDAHO_FAMILY_TO_CLASS[f]
+    if o in IDAHO_ORDER_TO_CLASS:
+        return IDAHO_ORDER_TO_CLASS[o]
+    return (common or "").lower().strip()
