@@ -58,8 +58,18 @@ def load_inference(model_dir: Path):
     inf_py = model_dir / "inference.py"
     if not inf_py.exists():
         raise FileNotFoundError(f"{model_dir} has no inference.py (not an AddaxAI zoo model?)")
-    weights = sorted((p for p in model_dir.iterdir() if p.suffix.lower() in WEIGHT_EXTS),
-                     key=lambda p: p.stat().st_size, reverse=True)
+    # The checkpoint AddaxAI passes as model_path is the one NOT named inside
+    # inference.py: auxiliary files the script opens by name (e.g. the
+    # torchvision ImageNet backbone SWUSA-SDZWA-v3 ships) are excluded.
+    script_lines = inf_py.read_text(encoding="utf-8", errors="ignore").splitlines()
+
+    def opened_by_name(fname: str) -> bool:
+        return any(fname in ln and "model_dir" in ln and "/" in ln for ln in script_lines)
+
+    candidates = [p for p in model_dir.iterdir() if p.suffix.lower() in WEIGHT_EXTS]
+    weights = sorted((p for p in candidates if not opened_by_name(p.name)),
+                     key=lambda p: p.stat().st_size, reverse=True) or \
+        sorted(candidates, key=lambda p: p.stat().st_size, reverse=True)
     if not weights:
         raise FileNotFoundError(f"no weight file in {model_dir}")
     spec = importlib.util.spec_from_file_location(f"addax_model_{model_dir.name}", inf_py)
