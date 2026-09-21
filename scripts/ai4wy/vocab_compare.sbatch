@@ -69,6 +69,12 @@ python scripts/run_speciesnet_arms.py classifier --wytrap-records "$BOXES" \
     --output "$OUT_SNC" --model "$SN_MODEL" --vocab "$VOCAB"
 EVAL "$OUT_SNC"
 
+echo "===== SpeciesNet classifier, open set (all 2498 labels) ====="
+OUT_SNO="$DATA_DIR/output-speciesnet-clf-open-$DTAG"
+python scripts/run_speciesnet_arms.py classifier --wytrap-records "$BOXES" \
+    --output "$OUT_SNO" --model "$SN_MODEL"
+EVAL "$OUT_SNO"
+
 echo "===== SpeciesNet classifier + roll-up, candidate set ====="
 OUT_SNE="$DATA_DIR/output-speciesnet-ens-$VTAG-$DTAG"
 python scripts/run_speciesnet_arms.py ensemble --images "$DATA_DIR/images" \
@@ -88,7 +94,9 @@ done
 
 echo "===== re-scoring the open-set runs on disk with $VOCAB ====="
 OPEN=()
-for d in output-species_idaho-redwood020 output-speciesnet-clf-species_idaho-redwood020 \
+# (the earlier output-speciesnet-clf-* dirs predate the per-box keying fix
+#  and are replaced by $OUT_SNO above)
+for d in output-species_idaho-redwood020 "output-speciesnet-clf-open-$DTAG" \
          output-speciesnet-ens-species_idaho-redwood020 output-speciesnet-ens \
          output-addax-wusa-sdzwa-v1-species_idaho-redwood020 output-addax-swusa-sdzwa-v3-species_idaho-redwood020 \
          output-wyoming_all; do

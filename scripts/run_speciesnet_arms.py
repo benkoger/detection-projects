@@ -148,10 +148,14 @@ def run_classifier_arm(args) -> int:
                 p = clf.preprocess(img, bboxes=[bb]) if img is not None else None
                 pre.append(p)
                 keep.append(d)
+            # batch_predict keys its results by filepath, so every box needs a
+            # unique key; passing the image path for all boxes returned the
+            # last box's classification for every box in the image.
             results = []
             for i in range(0, len(pre), args.batch_size):
                 chunk = pre[i:i + args.batch_size]
-                results.extend(clf.batch_predict([image_path] * len(chunk), chunk))
+                keys = [f"{image_path}#box{i + j}" for j in range(len(chunk))]
+                results.extend(clf.batch_predict(keys, chunk))
             for d, r in zip(keep, results):
                 cls = r.get("classifications")
                 if cls and target:

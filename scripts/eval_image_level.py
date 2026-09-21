@@ -171,7 +171,10 @@ def image_prediction(boxes: list[dict], agg: str, merges: dict[str, str],
     if agg == "max_score":
         b = max(boxes, key=lambda d: d["det_score"])
         top1 = resolve_box_label(b, merges)
-        topk: list[str] = []
+        # The ranked list starts with the record's own prediction. For an
+        # ensemble (e.g. SpeciesNet roll-up) fine_label can differ from the
+        # classifier's raw topk[0]; top-1 must score the final answer.
+        topk: list[str] = [top1]
         for e in b.get("topk", []):
             m = resolve_topk_entry(e, merges)
             if m not in topk:
