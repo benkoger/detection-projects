@@ -1,0 +1,28 @@
+# Evaluation vocabulary for the LILA Idaho Camera Traps subset, as taxon nodes.
+# One row per member taxon; several rows may share a label (fox = Vulpes + Urocyon).
+# Ranks use GBIF backbone canonical names. The node's rank is its deepest filled
+# rank. `prompts` lists the species-level BioCLIP prompts for the node as
+# "Binomial|common;..." and doubles as the closed candidate set.
+label,class,order,family,genus,species,prompts
+deer,Mammalia,Artiodactyla,Cervidae,Odocoileus,,Odocoileus hemionus|mule deer;Odocoileus virginianus|white-tailed deer
+elk,Mammalia,Artiodactyla,Cervidae,Cervus,canadensis,Cervus canadensis|elk
+moose,Mammalia,Artiodactyla,Cervidae,Alces,alces,Alces alces|moose
+pronghorn,Mammalia,Artiodactyla,Antilocapridae,Antilocapra,americana,Antilocapra americana|pronghorn
+bighorn sheep,Mammalia,Artiodactyla,Bovidae,Ovis,canadensis,Ovis canadensis|bighorn sheep
+cattle,Mammalia,Artiodactyla,Bovidae,Bos,taurus,Bos taurus|domestic cattle
+wolf,Mammalia,Carnivora,Canidae,Canis,lupus,Canis lupus|gray wolf
+coyote,Mammalia,Carnivora,Canidae,Canis,latrans,Canis latrans|coyote
+fox,Mammalia,Carnivora,Canidae,Vulpes,,Vulpes vulpes|red fox
+fox,Mammalia,Carnivora,Canidae,Urocyon,,Urocyon cinereoargenteus|gray fox
+bear,Mammalia,Carnivora,Ursidae,Ursus,,Ursus americanus|black bear;Ursus arctos|grizzly bear
+mountain lion,Mammalia,Carnivora,Felidae,Puma,concolor,Puma concolor|cougar
+bobcat,Mammalia,Carnivora,Felidae,Lynx,rufus,Lynx rufus|bobcat
+skunk,Mammalia,Carnivora,Mephitidae,,,Mephitis mephitis|striped skunk;Spilogale gracilis|western spotted skunk
+lagomorph,Mammalia,Lagomorpha,,,,Lepus americanus|snowshoe hare;Lepus townsendii|white-tailed jackrabbit;Sylvilagus nuttallii|mountain cottontail;Ochotona princeps|American pika
+squirrel,Mammalia,Rodentia,Sciuridae,,,Tamiasciurus hudsonicus|red squirrel;Urocitellus columbianus|Columbian ground squirrel;Callospermophilus lateralis|golden-mantled ground squirrel;Neotamias minimus|least chipmunk;Marmota flaviventris|yellow-bellied marmot
+turkey,Aves,Galliformes,Phasianidae,Meleagris,gallopavo,Meleagris gallopavo|wild turkey
+grouse,Aves,Galliformes,Phasianidae,Dendragapus,,Dendragapus obscurus|dusky grouse
+grouse,Aves,Galliformes,Phasianidae,Bonasa,,Bonasa umbellus|ruffed grouse
+grouse,Aves,Galliformes,Phasianidae,Centrocercus,,Centrocercus urophasianus|greater sage-grouse
+grouse,Aves,Galliformes,Phasianidae,Tympanuchus,,Tympanuchus phasianellus|sharp-tailed grouse
+grouse,Aves,Galliformes,Phasianidae,Falcipennis,,Falcipennis canadensis|spruce grouse

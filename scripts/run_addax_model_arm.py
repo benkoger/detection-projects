@@ -37,6 +37,7 @@ for sub in (REPO_ROOT, REPO_ROOT / "wytrap"):
         sys.path.insert(0, str(sub))
 
 from helpers.helpers import taxonomy_to_idaho  # noqa: E402
+from helpers.vocab import Vocab  # noqa: E402
 from wytrap.io import DetectionRecord, ImageRecord, append_jsonl, save_record  # noqa: E402
 
 WEIGHT_EXTS = (".pt", ".pth", ".onnx", ".pb", ".h5", ".safetensors", ".tflite")
@@ -81,15 +82,17 @@ def load_inference(model_dir: Path):
     return inf, weights[0]
 
 
-def load_label_map(model_dir: Path) -> dict[str, tuple[str, str]]:
-    """model class code -> (idaho label, scientific). Uses taxonomy.csv, then classes.csv."""
+def load_label_map(model_dir: Path) -> tuple[dict[str, tuple[str, str]], dict[str, dict]]:
+    """model class code -> (idaho label, scientific), plus code -> lineage dict."""
     out: dict[str, tuple[str, str]] = {}
+    lineages: dict[str, dict] = {}
     tax = model_dir / "taxonomy.csv"
     if tax.exists():
         with open(tax, newline="", encoding="utf-8") as f:
             for row in csv.DictReader(f):
                 code = row.get("model_class", "")
                 sci = " ".join(x for x in (row.get("genus", ""), row.get("species", "")) if x)
+                lineages[code] = {k: row.get(k, "") for k in ("class", "order", "family", "genus", "species")}
                 out[code] = (taxonomy_to_idaho(row.get("class", ""), row.get("order", ""),
                                                row.get("family", ""), row.get("genus", ""),
                                                row.get("species", ""), code.replace("_", " ")),
@@ -102,7 +105,7 @@ def load_label_map(model_dir: Path) -> dict[str, tuple[str, str]]:
                 if code and code not in out:
                     common = row.get("common", code.replace("_", " "))
                     out[code] = (taxonomy_to_idaho(common=common), row.get("species", common))
-    return out
+    return out, lineages
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -113,6 +116,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--output", required=True)
     ap.add_argument("--batch-size", type=int, default=32)
     ap.add_argument("--topk", type=int, default=5)
+    ap.add_argument("--vocab", default=None,
+                    help="taxon vocabulary CSV: mask the softmax to classes inside it and renormalise")
     args = ap.parse_args(argv)
 
     out_dir = Path(args.output)
@@ -124,7 +129,13 @@ def main(argv: list[str] | None = None) -> int:
     t0 = time.time()
     model_dir = load_model_dir(args.model)
     inf, weights = load_inference(model_dir)
-    label_map = load_label_map(model_dir)
+    label_map, lineages = load_label_map(model_dir)
+    allowed: set[str] | None = None
+    if args.vocab:
+        vocab = Vocab.load(args.vocab)
+        allowed = vocab.candidate_classes(lineages)
+        _log(f"vocab mask: {len(allowed)}/{len(label_map)} classes kept; masked: "
+             f"{sorted(set(label_map) - allowed)}")
     batched = hasattr(inf, "get_tensor") and hasattr(inf, "classify_batch")
     _log(f"{args.model}: {weights.name}, {len(label_map)} classes, "
          f"batched={batched}, loaded in {time.time() - t0:.0f}s on {getattr(inf, 'device', '?')}")
@@ -159,11 +170,16 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 results = [inf.get_classification(c) for c in crops]
             for d, probs in zip(keep, results):
+                if allowed is not None:
+                    probs = [(c, p) for c, p in probs if c in allowed]
+                    z = sum(p for _, p in probs) or 1.0
+                    probs = [(c, p / z) for c, p in probs]
                 ranked = sorted(probs, key=lambda x: -x[1])[:args.topk]
                 topk = []
                 for code, score in ranked:
                     lab, sci = label_map.get(code, (str(code).replace("_", " "), str(code)))
-                    topk.append({"common": lab, "scientific": sci, "score": float(score)})
+                    topk.append({"common": lab, "scientific": sci, "score": float(score),
+                                 "lineage": lineages.get(code, {})})
                 top = topk[0]
                 new_dets.append(DetectionRecord(
                     box_xyxy=d["box_xyxy"], det_score=d["det_score"], det_label=d["det_label"],
@@ -171,6 +187,7 @@ def main(argv: list[str] | None = None) -> int:
                     scientific_label=top["scientific"], cls_score=top["score"], topk=topk,
                     quality=d.get("quality", "ok"), quality_reason=d.get("quality_reason", ""),
                     scale="tight", scale_scores={"tight": top["score"]}, cross_scale_agree=True,
+                    lineage=lineages.get(ranked[0][0], {}),
                 ))
                 n_boxes += 1
         out_rec = ImageRecord(image_path=rec["image_path"], image_size=rec["image_size"],
@@ -184,6 +201,7 @@ def main(argv: list[str] | None = None) -> int:
     (out_dir / "addax_manifest.json").write_text(json.dumps({
         "model": args.model, "weights": weights.name, "model_dir": str(model_dir),
         "wytrap_records": args.wytrap_records, "images": n_img, "boxes": n_boxes,
+        "vocab": args.vocab, "allowed_classes": sorted(allowed) if allowed is not None else None,
         "label_map": {k: v[0] for k, v in label_map.items()}}, indent=2))
     return 0
 

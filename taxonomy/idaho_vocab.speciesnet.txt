@@ -1,0 +1,47 @@
+e4d1e892-0e4b-475a-a8ac-b5c3502e0d55;mammalia;rodentia;sciuridae;;;sciuridae family
+3358e0f4-7c5d-45cb-a068-40b36b26d4ad;mammalia;carnivora;mephitidae;spilogale;gracilis;western spotted skunk
+436ddfdd-bc43-44c3-a25d-34671d3430a0;mammalia;carnivora;ursidae;ursus;americanus;american black bear
+c5ce946f-8f0d-4379-992b-cc0982381f5e;mammalia;artiodactyla;cervidae;cervus;canadensis;elk
+ac0e8ba7-7261-4d17-8645-11ed3d02165a;mammalia;carnivora;canidae;vulpes;vulpes;red fox
+ee8d5a89-f82e-4323-80e2-0ffc9487ebaf;mammalia;carnivora;canidae;canis;lupus;grey wolf
+a72e70e6-4979-40fc-831d-74121cbc0b93;mammalia;rodentia;sciuridae;callospermophilus;lateralis;golden mantled ground squirrel
+f0bc62c2-1e46-49ae-85aa-e2d5a2e136d4;mammalia;artiodactyla;bovidae;ovis;canadensis;bighorn sheep
+febff896-db40-4ac8-bcfe-5bb99a600950;mammalia;artiodactyla;cervidae;odocoileus;hemionus;mule deer
+330bb1e9-84d6-4e41-afa9-938aee17ea29;mammalia;carnivora;ursidae;ursus;arctos;brown bear
+6785e65d-bba4-45f0-b7ae-3aa8be99540d;mammalia;rodentia;sciuridae;neotamias;minimus;least chipmunk
+beb6744b-2163-4a06-970f-39074ec51599;aves;galliformes;phasianidae;centrocercus;urophasianus;greater sage grouse
+c9f7a600-58ec-40f7-ac9e-b777c07783f7;mammalia;rodentia;sciuridae;marmota;;marmota species
+9878f262-2131-4259-adb2-fcab40e8238c;mammalia;lagomorpha;ochotonidae;ochotona;;ochotona species
+429257d4-3ef2-47fb-b849-66ee6c107346;mammalia;artiodactyla;cervidae;alces;alces;moose
+9282b7e4-f3b0-4ef3-9741-cae7f7bd346a;mammalia;carnivora;mephitidae;mephitis;mephitis;striped skunk
+9a5d6ef5-887d-4060-8ef8-b7e54a7303de;mammalia;lagomorpha;leporidae;lepus;;lepus species
+0f2e2c41-f1bb-4cdd-8e97-ba7cffba3e86;mammalia;lagomorpha;leporidae;lepus;americanus;snowshoe hare
+66e26e7c-7ebf-4795-a552-0c8c579b4a38;mammalia;lagomorpha;ochotonidae;ochotona;princeps;american pika
+3a292fc0-f364-4c55-bf4b-454cdb249117;mammalia;lagomorpha;leporidae;sylvilagus;nuttallii;mountain cottontail
+cacc63d7-b949-4731-abce-a403ba76ee34;mammalia;lagomorpha;leporidae;sylvilagus;;sylvilagus species
+aca65aaa-8c6d-4b69-94de-842b08b13bd6;mammalia;artiodactyla;bovidae;bos;taurus;domestic cattle
+5991f4fe-e5c8-44cf-b18c-7834d5649846;mammalia;lagomorpha;leporidae;lepus;townsendii;white-tailed jackrabbit
+94d8284e-6193-43b5-b80c-9029cf951675;aves;galliformes;phasianidae;meleagris;gallopavo;wild turkey
+85f6436b-bcc1-4581-9589-2bb4d48491b7;mammalia;carnivora;mephitidae;;;skunk family
+12aaee1d-c0e6-4c0c-ac13-5ff1eff8313a;mammalia;rodentia;sciuridae;marmota;flaviventris;yellow-bellied marmot
+b3f3e9e3-440d-44df-9a89-081f276c8bdd;mammalia;rodentia;sciuridae;tamiasciurus;hudsonicus;red squirrel
+f4a7c936-de6e-4b67-96d5-4b6ae3a2df36;aves;galliformes;phasianidae;falcipennis;canadensis;spruce grouse
+a87b481d-18b8-4ca3-ac7b-625ef944eab0;mammalia;carnivora;canidae;urocyon;;urocyon species
+78761f5e-64a3-46eb-b4f1-c966cc1ce630;mammalia;carnivora;canidae;vulpes;;vulpes species
+4e553460-a59c-4b30-a1f2-16f32bab800c;mammalia;rodentia;sciuridae;tamiasciurus;;tamiasciurus species
+e47f4e78-8c61-4a95-bfb6-9888b4a6fc84;aves;galliformes;phasianidae;tympanuchus;phasianellus;sharp-tailed grouse
+00804e75-09ef-44e5-8984-85e365377d47;mammalia;artiodactyla;antilocapridae;antilocapra;americana;pronghorn
+5a0f5e3f-c634-4b86-910a-b105cb526a24;mammalia;carnivora;ursidae;ursus;;ursus species
+1fe5e097-647f-4447-9766-a572187fc6b8;mammalia;rodentia;sciuridae;urocitellus;columbianus;columbian ground squirrel
+9cdb7b1d-47cc-46e9-88ea-f49c8f3f23c2;mammalia;carnivora;mephitidae;mephitis;;mephitis species
+5c7ce479-8a45-40b3-ae21-7c97dfae22f5;mammalia;artiodactyla;cervidae;odocoileus;virginianus;white-tailed deer
+5a06cb57-9553-46f9-ace2-fcfddbcdc753;mammalia;rodentia;sciuridae;neotamias;;neotamias species
+2ced2cc5-6a9e-4162-9643-060e973a24b7;mammalia;lagomorpha;;;;lagomorpha order
+b52529fa-320f-41e8-97ec-fa41ce26c86a;mammalia;artiodactyla;cervidae;odocoileus;;odocoileus species
+2279639f-8521-44dd-bf93-8ea84e42f64d;mammalia;rodentia;sciuridae;urocitellus;;urocitellus species
+258450f8-55c6-40a4-ab70-bbab2a050d56;aves;galliformes;phasianidae;dendragapus;obscurus;blue grouse
+4a54bb5f-d951-4a96-8ae1-a6ab9bdfce5b;aves;galliformes;phasianidae;bonasa;umbellus;ruffed grouse
+ba76d46e-25de-45e2-90a8-bd279b650f7c;mammalia;carnivora;felidae;lynx;rufus;bobcat
+ffe603fc-4920-4302-96d0-65f708bd5b2d;mammalia;carnivora;canidae;urocyon;cinereoargenteus;grey fox
+aaf3b049-36e6-46dd-9a07-8a580e9618b7;mammalia;carnivora;canidae;canis;latrans;coyote
+9c564562-9429-405c-8529-04cff7752282;mammalia;carnivora;felidae;puma;concolor;puma

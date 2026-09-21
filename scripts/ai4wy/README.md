@@ -145,3 +145,28 @@ Connect runs, so it is the more relevant baseline for the I-80 deployment.
   `uv pip install --index-url https://download.pytorch.org/whl/cu128 torch torchvision`.
 - Wall-time: 24 h requests were rejected in the ARCC examples. Use 8 h chunks
   and `--resume`.
+
+## Shared candidate set and hierarchical scoring
+
+`taxonomy/idaho_vocab.csv` defines the evaluation vocabulary as taxon nodes
+(GBIF backbone names): "deer" is the genus Odocoileus, "lagomorph" the order
+Lagomorpha, and each row lists the regional species that form the candidate
+set. `scripts/build_vocab_lists.py` derives, with one rule for every model,
+the BioCLIP 2 prompt file, SpeciesNet's target-species list, and which classes
+of each AddaxAI zoo model are kept. Masking is a softmax over the kept
+classes only (SpeciesNet via its target logits, zoo models by renormalising).
+
+`scripts/eval_image_level.py --vocab taxonomy/idaho_vocab.csv` resolves each
+prediction to a node by lineage or scientific name instead of string merges,
+and reports, beside top-1, `top1_or_consistent_rollup` (correct node, or a
+roll-up to a taxon containing it), the roll-up rate, and the share of
+predictions outside the vocabulary.
+
+```bash
+sbatch scripts/ai4wy/vocab_compare.sbatch
+```
+
+runs BioCLIP 2 on vocabulary prompts with redwood boxes, then SpeciesNet raw,
+SpeciesNet with roll-up, and each zoo model on those same boxes restricted to
+the same candidate set, re-scores every earlier open-set run with the same
+vocabulary, and prints one table.

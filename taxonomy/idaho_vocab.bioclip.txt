@@ -1,0 +1,33 @@
+# generated from idaho_vocab.csv: one prompt per vocabulary member species
+Odocoileus hemionus | mule deer
+Odocoileus virginianus | white-tailed deer
+Cervus canadensis | elk
+Alces alces | moose
+Antilocapra americana | pronghorn
+Ovis canadensis | bighorn sheep
+Bos taurus | domestic cattle
+Canis lupus | gray wolf
+Canis latrans | coyote
+Vulpes vulpes | red fox
+Urocyon cinereoargenteus | gray fox
+Ursus americanus | black bear
+Ursus arctos | grizzly bear
+Puma concolor | cougar
+Lynx rufus | bobcat
+Mephitis mephitis | striped skunk
+Spilogale gracilis | western spotted skunk
+Lepus americanus | snowshoe hare
+Lepus townsendii | white-tailed jackrabbit
+Sylvilagus nuttallii | mountain cottontail
+Ochotona princeps | American pika
+Tamiasciurus hudsonicus | red squirrel
+Urocitellus columbianus | Columbian ground squirrel
+Callospermophilus lateralis | golden-mantled ground squirrel
+Neotamias minimus | least chipmunk
+Marmota flaviventris | yellow-bellied marmot
+Meleagris gallopavo | wild turkey
+Dendragapus obscurus | dusky grouse
+Bonasa umbellus | ruffed grouse
+Centrocercus urophasianus | greater sage-grouse
+Tympanuchus phasianellus | sharp-tailed grouse
+Falcipennis canadensis | spruce grouse
