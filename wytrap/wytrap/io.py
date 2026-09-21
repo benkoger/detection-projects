@@ -23,6 +23,8 @@ class DetectionRecord:
     cross_scale_agree: bool = True # all scales' top-1 == winning scale's top-1
     lineage: dict = field(default_factory=dict)  # optional taxon ranks of the top-1
                                                  # (class/order/family/genus/species)
+    prompt_logp: dict = field(default_factory=dict)  # scale -> log-prob of every prompt
+                                                     # (order in <output>/prompts.json)
 
 
 @dataclass
@@ -60,6 +62,7 @@ def load_record(path: str | Path) -> ImageRecord:
         det.setdefault("scale_scores", {})
         det.setdefault("cross_scale_agree", True)
         det.setdefault("lineage", {})
+        det.setdefault("prompt_logp", {})
         # topk migrated from [[name, score], ...] to [{...}, ...].
         topk = det.get("topk", [])
         if topk and isinstance(topk[0], (list, tuple)):

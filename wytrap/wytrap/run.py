@@ -258,7 +258,7 @@ def process_image(image_path: str | Path,
     # Whole-image classification: computed once, shared across all detections.
     cls_full = classifier.classify(pil) if multiscale and tight_crops else None
 
-    by_idx: dict[int, tuple[Classification, str, dict, bool]] = {}
+    by_idx: dict[int, tuple[Classification, str, dict, bool, dict]] = {}
     for k, det_idx in enumerate(to_classify_idx):
         ct = cls_tight[k]
         scale_scores = {"tight": ct.score}
@@ -279,7 +279,11 @@ def process_image(image_path: str | Path,
             top1_padded = cp.fine_label
             top1_full   = cls_full.fine_label
             agree = (top1_tight == top1_padded == top1_full)
-        by_idx[det_idx] = (winner_cls, winner_name, scale_scores, agree)
+        plogp = {"tight": ct.all_logp}
+        if multiscale:
+            plogp["padded"] = cp.all_logp
+            plogp["full"] = cls_full.all_logp
+        by_idx[det_idx] = (winner_cls, winner_name, scale_scores, agree, plogp)
 
     for i, (det, (q, reason)) in enumerate(zip(detections, qualities)):
         if i not in by_idx:
@@ -298,7 +302,7 @@ def process_image(image_path: str | Path,
             ))
             continue
 
-        cls, scale_name, scale_scores, agree = by_idx[i]
+        cls, scale_name, scale_scores, agree, plogp = by_idx[i]
         canonical = merges.get(cls.fine_label, cls.fine_label)
         record.detections.append(DetectionRecord(
             box_xyxy=list(det.box_xyxy),
@@ -314,6 +318,7 @@ def process_image(image_path: str | Path,
             scale=scale_name,
             scale_scores={k: round(v, 4) for k, v in scale_scores.items()},
             cross_scale_agree=agree,
+            prompt_logp=plogp,
         ))
     return record
 
@@ -341,7 +346,8 @@ def process_folder(input_dir: str | Path,
                    log: callable = print,
                    log_file: str | Path | None = None,
                    detector_version: str = Detector.DEFAULT_VERSION,
-                   det_imgsz: int | None = None) -> dict:
+                   det_imgsz: int | None = None,
+                   prompt_bias: str | Path | None = None) -> dict:
     """Run the full pipeline over a folder of images. Returns summary dict."""
     input_dir = Path(input_dir)
     output_dir = Path(output_dir)
@@ -402,7 +408,19 @@ def process_folder(input_dir: str | Path,
              f"{cache_info['cache_dir']} on first use")
     else:
         plog("weights source    : unknown (huggingface_hub probe failed)")
-    classifier = Classifier(species=species_list, topk=cls_topk, device=device)
+    bias = None
+    if prompt_bias:
+        import json as _json
+        bias = _json.loads(Path(prompt_bias).read_text())
+        bias = bias.get("bias", bias)   # accept {"bias": {...}} or a flat map
+        plog(f"prompt bias       : {prompt_bias} ({len(bias)} prompts)")
+    classifier = Classifier(species=species_list, topk=cls_topk, device=device,
+                            prompt_bias=bias)
+    import json as _json2
+    (output_dir / "prompts.json").write_text(_json2.dumps(
+        {"prompts": classifier.prompts,
+         "common": {sp["scientific"]: sp["common"] for sp in classifier.species},
+         "prompt_bias": prompt_bias and str(prompt_bias)}, indent=1))
     plog(f"classifier ready on {classifier.device} "
          f"({len(classifier.species)} text embeddings cached)")
 

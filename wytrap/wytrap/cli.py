@@ -38,6 +38,10 @@ def _add_detect_parser(sub: argparse._SubParsersAction) -> None:
                         "MDV6-yolov10-e, MDV6-rtdetr-c) download from Zenodo; "
                         "MDV1000-redwood, MDV5a, MDV5b download from Hugging "
                         "Face and need no Zenodo access. Default MDV6-yolov9-e.")
+    p.add_argument("--prompt-bias", default=None,
+                   help="JSON of per-prompt log-space biases (from "
+                        "scripts/calibrate_bioclip.py) subtracted before "
+                        "ranking: zero-shot prior correction.")
     p.add_argument("--det-imgsz", type=int, default=None,
                    help="Detector inference resolution, long side in px "
                         "(multiple of 32). Default is the model's native "
@@ -137,6 +141,7 @@ def _cmd_detect(args: argparse.Namespace) -> int:
         log_file=args.log_file,
         detector_version=args.detector,
         det_imgsz=args.det_imgsz,
+        prompt_bias=args.prompt_bias,
     )
     return 0 if summary["failed"] == 0 else 1
 

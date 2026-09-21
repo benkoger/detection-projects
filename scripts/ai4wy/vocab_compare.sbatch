@@ -56,12 +56,22 @@ python scripts/build_vocab_lists.py "$VOCAB" --speciesnet-model "$SN_MODEL" --zo
 
 echo "===== BioCLIP 2 (wytrap) on the vocabulary prompts ====="
 OUT_BC="$DATA_DIR/output-bioclip-$VTAG-$DTAG"
+# Records from before per-prompt scores were recorded cannot be calibrated;
+# start that run over (resume would otherwise keep them).
+if [[ -d "$OUT_BC" && ! -f "$OUT_BC/prompts.json" ]]; then
+    echo "removing $OUT_BC (predates prompt_logp)"; rm -rf "$OUT_BC"
+fi
 wytrap detect --input "$DATA_DIR/images" --output "$OUT_BC" \
     --species "${VOCAB%.csv}.bioclip.txt" --detector "$DETECTOR" \
     --det-threshold "${DET_THRESHOLD:-0.20}" --device cuda --recursive --resume \
     --jsonl "$OUT_BC/all_records.jsonl"
 EVAL "$OUT_BC"
 BOXES="$OUT_BC/all_records.jsonl"   # every other arm reuses these boxes
+
+echo "===== BioCLIP 2 + prior correction (leave-location-out, label-free) ====="
+OUT_BCC="$OUT_BC-calib"
+python scripts/calibrate_bioclip.py --pred "$OUT_BC" --output "$OUT_BCC"
+EVAL "$OUT_BCC"
 
 echo "===== SpeciesNet classifier, candidate set ====="
 OUT_SNC="$DATA_DIR/output-speciesnet-clf-$VTAG-$DTAG"
@@ -96,7 +106,7 @@ echo "===== re-scoring the open-set runs on disk with $VOCAB ====="
 OPEN=()
 # (the earlier output-speciesnet-clf-* dirs predate the per-box keying fix
 #  and are replaced by $OUT_SNO above)
-for d in output-species_idaho-redwood020 "output-speciesnet-clf-open-$DTAG" \
+for d in output-species_idaho-redwood020 \
          output-speciesnet-ens-species_idaho-redwood020 output-speciesnet-ens \
          output-addax-wusa-sdzwa-v1-species_idaho-redwood020 output-addax-swusa-sdzwa-v3-species_idaho-redwood020 \
          output-wyoming_all; do
@@ -107,7 +117,8 @@ for d in output-species_idaho-redwood020 "output-speciesnet-clf-open-$DTAG" \
 done
 
 python - "$VTAG" \
-    "BioCLIP 2 [vocab prompts]=$OUT_BC" "SpeciesNet clf [vocab]=$OUT_SNC" \
+    "BioCLIP 2 [vocab prompts]=$OUT_BC" "BioCLIP 2 + prior correction [vocab]=$OUT_BCC" \
+    "SpeciesNet clf [vocab]=$OUT_SNC" "SpeciesNet clf [open]=$OUT_SNO" \
     "SpeciesNet clf+rollup [vocab]=$OUT_SNE" "${ZOO_OUTS[@]}" "${OPEN[@]}" <<'PY'
 import json, sys, pathlib
 vtag = sys.argv[1]

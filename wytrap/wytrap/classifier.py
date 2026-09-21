@@ -58,6 +58,9 @@ class Classification:
     scientific_label: str      # binomial of top-1 (what BioCLIP saw)
     score: float
     topk: list[TopKEntry] = field(default_factory=list)
+    # log-probability of every prompt, in Classifier.prompts order, BEFORE any
+    # prompt-bias correction (so calibration can be re-estimated offline)
+    all_logp: list[float] = field(default_factory=list)
 
 
 @dataclass
@@ -81,7 +84,7 @@ class Classifier:
     """
 
     def __init__(self, species: Sequence, topk: int = 5,
-                 device: str = "auto"):
+                 device: str = "auto", prompt_bias: dict[str, float] | None = None):
         from bioclip.predict import CustomLabelsClassifier
 
         self.species: list[Species] = load_species(list(species))
@@ -94,6 +97,13 @@ class Classifier:
         self._prompts = [s["scientific"] for s in self.species]
         self._sci_to_common = {s["scientific"]: s["common"] for s in self.species}
         self._classifier = CustomLabelsClassifier(self._prompts, device=self.device)
+        # Per-prompt log-space bias subtracted before ranking (prior
+        # correction). Keyed by scientific name; missing prompts get 0.
+        self.prompt_bias = [float((prompt_bias or {}).get(p, 0.0)) for p in self._prompts]
+
+    @property
+    def prompts(self) -> list[str]:
+        return list(self._prompts)
 
     @staticmethod
     def _resolve_device(device: str) -> str:
@@ -115,16 +125,26 @@ class Classifier:
         return self._unpack(preds, len(crops))
 
     def _unpack(self, preds: list[dict], n_images: int) -> list[Classification]:
-        per_image: list[list[tuple[str, float]]] = [[] for _ in range(n_images)]
+        import math
+        per_image: list[dict[str, float]] = [{} for _ in range(n_images)]
         n_species = len(self._prompts)
         for idx, p in enumerate(preds):
             img_idx = idx // n_species
             if img_idx >= n_images:
                 break
-            per_image[img_idx].append((p["classification"], float(p["score"])))
+            per_image[img_idx][p["classification"]] = float(p["score"])
 
         out: list[Classification] = []
-        for items in per_image:
+        for probs in per_image:
+            logp = [math.log(max(probs.get(pr, 0.0), 1e-12)) for pr in self._prompts]
+            if any(self.prompt_bias):
+                adj = [lp - b for lp, b in zip(logp, self.prompt_bias)]
+                m = max(adj)
+                z = sum(math.exp(a - m) for a in adj)
+                ranked = [math.exp(a - m) / z for a in adj]
+            else:
+                ranked = [probs.get(pr, 0.0) for pr in self._prompts]
+            items = list(zip(self._prompts, ranked))
             items.sort(key=lambda kv: kv[1], reverse=True)
             top = items[: self.topk]
             topk_entries = [
@@ -140,6 +160,7 @@ class Classifier:
                     scientific_label=head.scientific,
                     score=head.score,
                     topk=topk_entries,
+                    all_logp=[round(x, 4) for x in logp],
                 ))
             else:
                 out.append(Classification(
