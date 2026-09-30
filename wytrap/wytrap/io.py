@@ -3,6 +3,7 @@
 from dataclasses import dataclass, asdict, field
 from pathlib import Path
 import json
+import os
 
 
 @dataclass
@@ -75,6 +76,26 @@ def load_record(path: str | Path) -> ImageRecord:
         detections=detections,
         error=d.get("error"),
     )
+
+
+def common_root(image_paths: list[str]) -> Path:
+    """Deepest folder containing every image. Per-image JSONs written by the
+    secondary classifier arms mirror the tree below it, so same-named
+    subfolders (Reconyx `100RECNX/` under every camera) never collide."""
+    if not image_paths:
+        return Path("/")
+    root = Path(os.path.commonpath([str(p) for p in image_paths]))
+    return root.parent if root.suffix else root
+
+
+def passthrough_record(d: dict) -> DetectionRecord:
+    """A person/vehicle box from a wytrap record, carried through unclassified
+    by a classifier arm that only handles animals."""
+    return DetectionRecord(
+        box_xyxy=d["box_xyxy"], det_score=d["det_score"], det_label=d["det_label"],
+        label=d["det_label"], fine_label=d["det_label"], scientific_label="",
+        cls_score=0.0, topk=[], quality=d.get("quality", "ok"),
+        quality_reason=d.get("quality_reason", ""))
 
 
 def output_path_for(image_path: str | Path, out_dir: str | Path,

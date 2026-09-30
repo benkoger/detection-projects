@@ -37,7 +37,8 @@ import numpy as np
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT / "wytrap"))
-from wytrap.io import DetectionRecord, ImageRecord, append_jsonl, save_record  # noqa: E402
+from wytrap.io import (DetectionRecord, ImageRecord, append_jsonl, common_root,  # noqa: E402
+                       output_path_for, save_record)
 
 SCALES = ("tight", "padded", "full")
 
@@ -147,6 +148,7 @@ def main(argv: list[str] | None = None) -> int:
     if jsonl.exists():
         jsonl.unlink()
     changed = total = 0
+    root = common_root([r["image_path"] for r in recs])
     for r in recs:
         loc = location_of(r["image_path"])
         dets = []
@@ -184,8 +186,7 @@ def main(argv: list[str] | None = None) -> int:
                 "cross_scale_agree": len(set(tops.values())) == 1}))
         rec = ImageRecord(image_path=r["image_path"], image_size=r["image_size"],
                           detections=dets, error=r.get("error"))
-        rel = Path(r["image_path"])
-        save_record(rec, out / rel.parent.name / (rel.stem + ".json"))
+        save_record(rec, output_path_for(r["image_path"], out, input_root=root))
         append_jsonl(rec, jsonl)
     print(f"[calib] relabelled {changed} of {total} classified boxes -> {out}")
     return 0

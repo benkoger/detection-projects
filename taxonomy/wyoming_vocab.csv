@@ -1,0 +1,42 @@
+# Deployment vocabulary for southern Wyoming camera traps (I-80 corridor,
+# WySoundscape sites), as taxon nodes — same format as idaho_vocab.csv.
+# One row per member taxon; several rows may share a label. Ranks use GBIF
+# backbone canonical names; the node's rank is its deepest filled rank.
+# `prompts` are the species-level BioCLIP prompts ("Binomial|common;...") and
+# double as the closed candidate set for every model.
+#
+# Started from idaho_vocab.csv (the evaluated set) plus the species a
+# roadside camera in Wyoming sees that Idaho's public set lacks: badger,
+# raccoon, porcupine, weasel, domestic dog, horse, domestic sheep, bison,
+# corvids. Edit freely; scripts/build_vocab_lists.py regenerates every list.
+label,class,order,family,genus,species,prompts
+deer,Mammalia,Artiodactyla,Cervidae,Odocoileus,,Odocoileus hemionus|mule deer;Odocoileus virginianus|white-tailed deer
+elk,Mammalia,Artiodactyla,Cervidae,Cervus,canadensis,Cervus canadensis|elk
+moose,Mammalia,Artiodactyla,Cervidae,Alces,alces,Alces alces|moose
+pronghorn,Mammalia,Artiodactyla,Antilocapridae,Antilocapra,americana,Antilocapra americana|pronghorn
+bighorn sheep,Mammalia,Artiodactyla,Bovidae,Ovis,canadensis,Ovis canadensis|bighorn sheep
+domestic sheep,Mammalia,Artiodactyla,Bovidae,Ovis,aries,Ovis aries|domestic sheep
+cattle,Mammalia,Artiodactyla,Bovidae,Bos,taurus,Bos taurus|domestic cattle
+bison,Mammalia,Artiodactyla,Bovidae,Bison,bison,Bison bison|American bison
+horse,Mammalia,Perissodactyla,Equidae,Equus,caballus,Equus caballus|horse
+wolf,Mammalia,Carnivora,Canidae,Canis,lupus,Canis lupus|gray wolf
+coyote,Mammalia,Carnivora,Canidae,Canis,latrans,Canis latrans|coyote
+domestic dog,Mammalia,Carnivora,Canidae,Canis,familiaris,Canis familiaris|domestic dog
+fox,Mammalia,Carnivora,Canidae,Vulpes,,Vulpes vulpes|red fox
+fox,Mammalia,Carnivora,Canidae,Urocyon,,Urocyon cinereoargenteus|gray fox
+bear,Mammalia,Carnivora,Ursidae,Ursus,,Ursus americanus|black bear;Ursus arctos|grizzly bear
+mountain lion,Mammalia,Carnivora,Felidae,Puma,concolor,Puma concolor|cougar
+bobcat,Mammalia,Carnivora,Felidae,Lynx,rufus,Lynx rufus|bobcat
+badger,Mammalia,Carnivora,Mustelidae,Taxidea,taxus,Taxidea taxus|American badger
+weasel,Mammalia,Carnivora,Mustelidae,Mustela,,Mustela frenata|long-tailed weasel;Mustela erminea|short-tailed weasel
+raccoon,Mammalia,Carnivora,Procyonidae,Procyon,lotor,Procyon lotor|raccoon
+skunk,Mammalia,Carnivora,Mephitidae,,,Mephitis mephitis|striped skunk;Spilogale gracilis|western spotted skunk
+porcupine,Mammalia,Rodentia,Erethizontidae,Erethizon,dorsatum,Erethizon dorsatum|North American porcupine
+lagomorph,Mammalia,Lagomorpha,,,,Lepus americanus|snowshoe hare;Lepus townsendii|white-tailed jackrabbit;Sylvilagus nuttallii|mountain cottontail;Sylvilagus audubonii|desert cottontail;Ochotona princeps|American pika
+squirrel,Mammalia,Rodentia,Sciuridae,,,Tamiasciurus hudsonicus|red squirrel;Urocitellus elegans|Wyoming ground squirrel;Callospermophilus lateralis|golden-mantled ground squirrel;Neotamias minimus|least chipmunk;Marmota flaviventris|yellow-bellied marmot;Cynomys leucurus|white-tailed prairie dog
+turkey,Aves,Galliformes,Phasianidae,Meleagris,gallopavo,Meleagris gallopavo|wild turkey
+grouse,Aves,Galliformes,Phasianidae,Dendragapus,,Dendragapus obscurus|dusky grouse
+grouse,Aves,Galliformes,Phasianidae,Centrocercus,,Centrocercus urophasianus|greater sage-grouse
+grouse,Aves,Galliformes,Phasianidae,Tympanuchus,,Tympanuchus phasianellus|sharp-tailed grouse
+corvid,Aves,Passeriformes,Corvidae,,,Corvus corax|common raven;Pica hudsonia|black-billed magpie
+raptor,Aves,Accipitriformes,Accipitridae,,,Aquila chrysaetos|golden eagle;Buteo jamaicensis|red-tailed hawk

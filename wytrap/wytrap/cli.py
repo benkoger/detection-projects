@@ -42,6 +42,11 @@ def _add_detect_parser(sub: argparse._SubParsersAction) -> None:
                    help="JSON of per-prompt log-space biases (from "
                         "scripts/calibrate_bioclip.py) subtracted before "
                         "ranking: zero-shot prior correction.")
+    p.add_argument("--keep-labels", default="animal",
+                   help="Comma-separated MegaDetector classes to record "
+                        "(animal, person, vehicle). Only animal boxes are "
+                        "classified; others are kept with the detector's "
+                        "label. Default: animal (eval sets have no people).")
     p.add_argument("--det-imgsz", type=int, default=None,
                    help="Detector inference resolution, long side in px "
                         "(multiple of 32). Default is the model's native "
@@ -142,6 +147,7 @@ def _cmd_detect(args: argparse.Namespace) -> int:
         detector_version=args.detector,
         det_imgsz=args.det_imgsz,
         prompt_bias=args.prompt_bias,
+        keep_labels=tuple(s.strip() for s in args.keep_labels.split(",") if s.strip()),
     )
     return 0 if summary["failed"] == 0 else 1
 

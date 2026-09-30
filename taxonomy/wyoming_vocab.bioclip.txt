@@ -1,0 +1,46 @@
+# generated from wyoming_vocab.csv: one prompt per vocabulary member species
+Odocoileus hemionus | mule deer
+Odocoileus virginianus | white-tailed deer
+Cervus canadensis | elk
+Alces alces | moose
+Antilocapra americana | pronghorn
+Ovis canadensis | bighorn sheep
+Ovis aries | domestic sheep
+Bos taurus | domestic cattle
+Bison bison | American bison
+Equus caballus | horse
+Canis lupus | gray wolf
+Canis latrans | coyote
+Canis familiaris | domestic dog
+Vulpes vulpes | red fox
+Urocyon cinereoargenteus | gray fox
+Ursus americanus | black bear
+Ursus arctos | grizzly bear
+Puma concolor | cougar
+Lynx rufus | bobcat
+Taxidea taxus | American badger
+Mustela frenata | long-tailed weasel
+Mustela erminea | short-tailed weasel
+Procyon lotor | raccoon
+Mephitis mephitis | striped skunk
+Spilogale gracilis | western spotted skunk
+Erethizon dorsatum | North American porcupine
+Lepus americanus | snowshoe hare
+Lepus townsendii | white-tailed jackrabbit
+Sylvilagus nuttallii | mountain cottontail
+Sylvilagus audubonii | desert cottontail
+Ochotona princeps | American pika
+Tamiasciurus hudsonicus | red squirrel
+Urocitellus elegans | Wyoming ground squirrel
+Callospermophilus lateralis | golden-mantled ground squirrel
+Neotamias minimus | least chipmunk
+Marmota flaviventris | yellow-bellied marmot
+Cynomys leucurus | white-tailed prairie dog
+Meleagris gallopavo | wild turkey
+Dendragapus obscurus | dusky grouse
+Centrocercus urophasianus | greater sage-grouse
+Tympanuchus phasianellus | sharp-tailed grouse
+Corvus corax | common raven
+Pica hudsonia | black-billed magpie
+Aquila chrysaetos | golden eagle
+Buteo jamaicensis | red-tailed hawk

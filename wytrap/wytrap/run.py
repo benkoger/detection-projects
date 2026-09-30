@@ -246,6 +246,8 @@ def process_image(image_path: str | Path,
     for i, (det, (q, _)) in enumerate(zip(detections, qualities)):
         if skip_classification_when_bad and q != "ok":
             continue
+        if det.label != "animal":       # person / vehicle: keep the box, no species
+            continue
         to_classify_idx.append(i)
         tight_crops.append(_crop(pil, det.box_xyxy))
         if multiscale:
@@ -287,13 +289,16 @@ def process_image(image_path: str | Path,
 
     for i, (det, (q, reason)) in enumerate(zip(detections, qualities)):
         if i not in by_idx:
-            # Box was skipped — preserve the detection but note it.
+            # Box was skipped — preserve the detection but note it. Non-animal
+            # boxes carry the detector's own label so downstream consumers can
+            # count people and vehicles.
+            passthrough = det.label if det.label != "animal" else "skipped"
             record.detections.append(DetectionRecord(
                 box_xyxy=list(det.box_xyxy),
                 det_score=det.score,
                 det_label=det.label,
-                label="skipped",
-                fine_label="",
+                label=passthrough,
+                fine_label=passthrough if passthrough != "skipped" else "",
                 scientific_label="",
                 cls_score=0.0,
                 topk=[],
@@ -347,7 +352,8 @@ def process_folder(input_dir: str | Path,
                    log_file: str | Path | None = None,
                    detector_version: str = Detector.DEFAULT_VERSION,
                    det_imgsz: int | None = None,
-                   prompt_bias: str | Path | None = None) -> dict:
+                   prompt_bias: str | Path | None = None,
+                   keep_labels: Sequence[str] = ("animal",)) -> dict:
     """Run the full pipeline over a folder of images. Returns summary dict."""
     input_dir = Path(input_dir)
     output_dir = Path(output_dir)
@@ -390,7 +396,8 @@ def process_folder(input_dir: str | Path,
 
     plog(f"Loading MegaDetector ({detector_version})", banner=True)
     detector = Detector(device=device, det_threshold=det_threshold,
-                        version=detector_version, imgsz=det_imgsz)
+                        version=detector_version, imgsz=det_imgsz,
+                        keep_labels=tuple(keep_labels))
     plog(f"detector ready (device resolved to: {detector.device}, "
          f"imgsz={detector.imgsz}, keep_labels={sorted(detector.keep_labels)})")
 

@@ -38,7 +38,8 @@ for sub in (REPO_ROOT, REPO_ROOT / "wytrap"):
 
 from helpers.helpers import taxonomy_to_idaho  # noqa: E402
 from helpers.vocab import Vocab  # noqa: E402
-from wytrap.io import DetectionRecord, ImageRecord, append_jsonl, save_record  # noqa: E402
+from wytrap.io import (DetectionRecord, ImageRecord, append_jsonl, common_root,  # noqa: E402
+                       output_path_for, passthrough_record, save_record)
 
 WEIGHT_EXTS = (".pt", ".pth", ".onnx", ".pb", ".h5", ".safetensors", ".tflite")
 
@@ -143,6 +144,7 @@ def main(argv: list[str] | None = None) -> int:
         f"{c}->{lab}" for c, (lab, _) in sorted(label_map.items()) if lab != c))
 
     records = [json.loads(l) for l in open(args.wytrap_records) if l.strip()]
+    root = common_root([r["image_path"] for r in records])
     n_img = n_boxes = 0
     t0 = time.time()
     for rec in records:
@@ -154,6 +156,9 @@ def main(argv: list[str] | None = None) -> int:
             W, H = image.size
             crops, keep = [], []
             for d in dets:
+                if d.get("det_label", "animal") != "animal":
+                    new_dets.append(passthrough_record(d))   # person / vehicle box
+                    continue
                 x1, y1, x2, y2 = d["box_xyxy"]
                 bbox = (x1 / W, y1 / H, (x2 - x1) / W, (y2 - y1) / H)
                 try:
@@ -192,8 +197,7 @@ def main(argv: list[str] | None = None) -> int:
                 n_boxes += 1
         out_rec = ImageRecord(image_path=rec["image_path"], image_size=rec["image_size"],
                               detections=new_dets, error=rec.get("error"))
-        rel = Path(rec["image_path"])
-        save_record(out_rec, out_dir / rel.parent.name / (rel.stem + ".json"))
+        save_record(out_rec, output_path_for(rec["image_path"], out_dir, input_root=root))
         append_jsonl(out_rec, jsonl)
         n_img += 1
         if n_img % 50 == 0 or n_img == len(records):

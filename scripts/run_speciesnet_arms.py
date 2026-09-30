@@ -44,7 +44,8 @@ for sub in (REPO_ROOT, REPO_ROOT / "wytrap"):
     if str(sub) not in sys.path:
         sys.path.insert(0, str(sub))
 
-from wytrap.io import DetectionRecord, ImageRecord, append_jsonl, save_record  # noqa: E402
+from wytrap.io import (DetectionRecord, ImageRecord, append_jsonl, common_root,  # noqa: E402
+                       output_path_for, passthrough_record, save_record)
 from wytrap.run import IMAGE_EXTS, assess_box_quality  # noqa: E402
 
 # Mirror used by AddaxAI Connect; avoids Kaggle credentials.
@@ -69,6 +70,9 @@ def sn_lineage(label: str) -> dict[str, str]:
         return {}
     _, cls, order, family, genus, species, _ = parts
     return {"class": cls, "order": order, "family": family, "genus": genus, "species": species}
+
+
+MD_CATEGORY = {"animal": "1", "person": "2", "vehicle": "3"}
 
 
 def _topk(classes: list[str], scores: list[float]) -> list[dict]:
@@ -126,6 +130,7 @@ def run_classifier_arm(args) -> int:
 
     records = [json.loads(l) for l in open(args.wytrap_records) if l.strip()]
     _log(f"{len(records)} wytrap records from {args.wytrap_records}")
+    root = common_root([r["image_path"] for r in records])
     t0 = time.time()
     target = write_target_file(args.model, args.vocab, out_dir) if args.vocab else None
     clf = SpeciesNetClassifier(args.model, target_species_txt=str(target) if target else None)
@@ -143,6 +148,9 @@ def run_classifier_arm(args) -> int:
             W, H = rec["image_size"]
             pre, keep = [], []
             for d in dets:
+                if d.get("det_label", "animal") != "animal":
+                    new_dets.append(passthrough_record(d))   # person / vehicle box
+                    continue
                 x1, y1, x2, y2 = d["box_xyxy"]
                 bb = BBox(xmin=x1 / W, ymin=y1 / H, width=(x2 - x1) / W, height=(y2 - y1) / H)
                 p = clf.preprocess(img, bboxes=[bb]) if img is not None else None
@@ -177,9 +185,7 @@ def run_classifier_arm(args) -> int:
                 n_boxes += 1
         out_rec = ImageRecord(image_path=image_path, image_size=rec["image_size"],
                               detections=new_dets, error=rec.get("error"))
-        rel = Path(image_path)
-        out_path = out_dir / rel.parent.name / (rel.stem + ".json")
-        save_record(out_rec, out_path)
+        save_record(out_rec, output_path_for(image_path, out_dir, input_root=root))
         append_jsonl(out_rec, jsonl)
         n_img += 1
         if n_img % 50 == 0 or n_img == len(records):
@@ -240,7 +246,8 @@ def run_ensemble_arm(args) -> int:
                 W, H = r["image_size"]
                 dets = sorted(r.get("detections") or [], key=lambda d: -d["det_score"])
                 dd[r["image_path"]] = {"filepath": r["image_path"], "detections": [
-                    {"category": "1", "label": "animal", "conf": float(d["det_score"]),
+                    {"category": MD_CATEGORY.get(d.get("det_label", "animal"), "1"),
+                     "label": d.get("det_label", "animal"), "conf": float(d["det_score"]),
                      "bbox": [d["box_xyxy"][0] / W, d["box_xyxy"][1] / H,
                               (d["box_xyxy"][2] - d["box_xyxy"][0]) / W,
                               (d["box_xyxy"][3] - d["box_xyxy"][1]) / H]}
@@ -284,12 +291,16 @@ def run_ensemble_arm(args) -> int:
         topk = _topk(cls.get("classes", []), cls.get("scores", []))[:args.topk]
         dets: list[DetectionRecord] = []
         for d in p.get("detections") or []:
-            if d.get("label") != "animal":
-                continue
             x, y, w, h = d["bbox"]
             box = (int(round(x * W)), int(round(y * H)),
                    int(round((x + w) * W)), int(round((y + h) * H)))
             quality, reason = assess_box_quality(box, (W, H))
+            if d.get("label") != "animal":
+                dets.append(DetectionRecord(
+                    box_xyxy=list(box), det_score=float(d["conf"]), det_label=d["label"],
+                    label=d["label"], fine_label=d["label"], scientific_label="",
+                    cls_score=0.0, topk=[], quality=quality, quality_reason=reason))
+                continue
             dets.append(DetectionRecord(
                 box_xyxy=list(box), det_score=float(d["conf"]), det_label="animal",
                 label=name, fine_label=name, scientific_label=sci,
@@ -301,8 +312,7 @@ def run_ensemble_arm(args) -> int:
             n_boxes += 1
         rec = ImageRecord(image_path=fp, image_size=[W, H], detections=dets,
                           error="; ".join(p["failures"]) if p.get("failures") else None)
-        rel = Path(fp)
-        save_record(rec, out_dir / rel.parent.name / (rel.stem + ".json"))
+        save_record(rec, output_path_for(fp, out_dir, input_root=images_dir))
         append_jsonl(rec, jsonl)
     _log(f"converted {len(preds['predictions'])} predictions, {n_boxes} animal boxes; "
          f"prediction_source counts: {rollups}")

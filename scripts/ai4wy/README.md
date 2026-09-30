@@ -170,3 +170,41 @@ runs BioCLIP 2 on vocabulary prompts with redwood boxes, then SpeciesNet raw,
 SpeciesNet with roll-up, and each zoo model on those same boxes restricted to
 the same candidate set, re-scores every earlier open-set run with the same
 vocabulary, and prints one table.
+
+## Deployment: unlabelled camera folders (WySoundscape, I-80)
+
+`scripts/ai4wy/deploy_infer.sbatch` is the inference-only counterpart of
+`vocab_compare.sbatch`: MegaDetector once (person and vehicle boxes are kept,
+unclassified), then BioCLIP 2 with the Idaho-estimated prior correction,
+SpeciesNet with roll-up, and Western USA SDZWA on the same boxes, all
+restricted to `taxonomy/wyoming_vocab.csv`, and
+`scripts/merge_predictions.py` joins them into `merged/images.csv` (one
+headline label per model per image, person/vehicle counts, consensus) and
+`merged/boxes.csv` (per box). No labels are read; nothing is scored.
+
+Data lives on MedicineBow and `/project` is not shared, so copy it first
+(Globus for the full 433 GB; rsync one camera folder to test):
+
+```bash
+# medbow -> ai4wy, one camera
+rsync -avP /project/wildimageproc/omartin9/Soundscapes/Camera_data/<CAM>/ \
+    ai4wy-log2.arcc.uwyo.edu:/project/uwyo-0007/data/wysoundscape/images/<CAM>/
+
+# ai4wy: one folder
+IMAGES=/project/uwyo-0007/data/wysoundscape/images/<CAM> sbatch scripts/ai4wy/deploy_infer.sbatch
+
+# ai4wy: every camera folder as a Slurm array (8 at once), then one table
+scripts/ai4wy/deploy_submit.sh /project/uwyo-0007/data/wysoundscape/images
+python scripts/merge_predictions.py --combine /project/uwyo-0007/data/wysoundscape/output
+```
+
+Budget: about 4 img/s for BioCLIP 2 (detector included), 9 for SpeciesNet, 17
+for the zoo model, so roughly 35 GPU-hours per 300k images; the array spreads
+that over gp-1/gp-2. Jobs resume (`wytrap --resume`), so a killed task can
+simply be resubmitted.
+
+`PROMPT_BIAS=self` re-estimates BioCLIP's prior correction on the folder
+itself (leave-location-out over its sub-folders); the default reuses the
+Idaho estimate, which is the right choice for a single camera. Per-image
+JSONs from every arm mirror the image tree below the common root, so Reconyx
+`100RECNX/` folders under different cameras do not collide.
