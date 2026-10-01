@@ -486,7 +486,7 @@ def run(args: argparse.Namespace) -> int:
 
     result = evaluate(items, args, merges)
     metrics, cls_items = result[0], result[1]
-    metrics["config"] = {k: v for k, v in vars(args).items()}
+    metrics["config"] = {k: v for k, v in vars(args).items() if not callable(v)}
     if VOCAB is not None:
         metrics["vocab_resolution"] = dict(RELATION_COUNTS)
         log.info("prediction relation to vocabulary nodes: %s", dict(RELATION_COUNTS))

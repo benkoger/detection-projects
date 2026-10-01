@@ -163,7 +163,9 @@ class BioCLIPClassifier(BoxClassifier):
     def classify_crops(self, crops: Sequence[Image.Image]) -> list[Classification]:
         if not crops:
             return []
-        preds = self._classifier.predict(list(crops))
+        # a callback silences pybioclip's per-call tqdm bar (three per image
+        # otherwise); wytrap prints its own progress line
+        preds = self._classifier.predict(list(crops), callback=lambda done, total: None)
         return self._unpack(preds, len(crops))
 
     def _unpack(self, preds: list[dict], n_images: int) -> list[Classification]:
