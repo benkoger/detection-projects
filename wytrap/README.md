@@ -135,6 +135,21 @@ the fraction of images it is most sure about), day/night splits, and with a
 vocabulary the hierarchical score (correct node, or a roll-up to a taxon
 containing it).
 
+### Audit the species list
+
+Any vocabulary is a hypothesis about what the cameras see. To test it, run
+a classifier *unrestricted* on the same boxes and count:
+
+```bash
+wytrap classify --records /runs/cam01-bioclip/all_records.jsonl --output /runs/cam01-open \
+    --classifier speciesnet-ensemble --admin1 WY            # no --vocab
+wytrap census --out /runs/census --run cam01=/runs/cam01-open --vocab taxonomy/wyoming_vocab.csv
+```
+
+`census.csv` has one row per label with counts per camera and whether the
+label resolves to a vocabulary node; labels marked outside the vocabulary
+with a real count are additions, nodes never seen are candidates to drop.
+
 ### Prior correction for BioCLIP
 
 Zero-shot models have a built-in bias: some prompts win on any crop. For
@@ -194,6 +209,7 @@ wytrap/
   calibrate.py       prior correction
   evaluate.py        image-level evaluation
   merge.py           side-by-side tables
+  census.py          per-camera label counts audited against a vocabulary
   species_lists.py   built-in BioCLIP species lists (wyoming_all, ...)
 ```
 

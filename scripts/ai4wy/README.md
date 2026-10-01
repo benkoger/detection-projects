@@ -34,6 +34,7 @@ written by one member stay writable by the others.
 | `compare_classifiers.sbatch` | every classifier on the same boxes and candidate set, one table | 30 min at `PER_CLASS=100` |
 | `deploy_infer.sbatch` | unlabelled folder: detector once, three classifiers, merged table | 2 h per 20k images |
 | `deploy_submit.sh` | `deploy_infer` as a Slurm array, one task per camera folder | |
+| `census.sbatch` | SpeciesNet unrestricted on finished deploy runs, then a per-camera species census audited against the vocabulary | 40 min per 20k images |
 
 All take their settings as environment variables, documented in each file's
 header. Submit from the repo root so `logs/` and `taxonomy/` resolve:
@@ -107,6 +108,22 @@ classifier per image, person and vehicle counts, consensus) and `boxes.csv`;
 4 img/s for BioCLIP 2 (detector included), 9 for SpeciesNet and 17 for the
 zoo model on one GPU, so roughly 35 GPU-hours per 300k images, spread
 across the array. Tasks resume, so a killed one can be resubmitted.
+
+### Auditing the species list
+
+The vocabulary is a guess until the cameras have spoken. `census.sbatch`
+runs SpeciesNet with no restriction (only its Wyoming geofence) on the boxes
+a deploy run already produced, and tallies what each camera saw, marking
+labels the vocabulary lacks and vocabulary nodes that never appeared:
+
+```bash
+CAMERAS=shirley sbatch --dependency=afterany:$(squeue -u $USER -h -n wytrap-deploy -o %i | paste -sd:) \
+    scripts/ai4wy/census.sbatch
+cat /project/uwyo-0007/data/CameraTrap_test/output/census-shirley/census.csv
+```
+
+Add what shows up with a solid count, drop what never does, and rerun the
+restricted classifiers with the revised `taxonomy/*.csv`.
 
 ## Gotchas
 
