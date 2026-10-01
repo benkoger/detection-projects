@@ -18,6 +18,9 @@
 #   VOCAB         default taxonomy/wyoming_vocab.csv
 #   DETECTOR      default MDV1000-redwood (what AddaxAI Connect runs)
 #   DET_THRESHOLD default 0.20 (record floor; `wytrap merge --min-det` raises it)
+#   BOXES_FROM    all_records.jsonl of an earlier run on the same images: reuse
+#                 its MegaDetector boxes and only re-run the classifiers (the
+#                 cheap way to try a revised vocabulary)
 #   PROMPT_BIAS   BioCLIP prior-correction file; default: the one estimated
 #                 on Idaho. "none" disables; "self" re-estimates on this folder
 #                 (needs several camera sub-folders to be meaningful).
@@ -72,8 +75,15 @@ if [[ "$PROMPT_BIAS" != "none" && "$PROMPT_BIAS" != "self" ]]; then
     [[ -f "$PROMPT_BIAS" ]] || { echo "PROMPT_BIAS file not found: $PROMPT_BIAS"; exit 2; }
     BIAS_ARGS=(--prompt-bias "$PROMPT_BIAS")
 fi
-wytrap detect --input "$IMAGES" --output "$OUT_BC" --classifier bioclip --vocab "$VOCAB" \
-    --detector "$DETECTOR" --det-threshold "$DET_THRESHOLD" --device cuda "${BIAS_ARGS[@]}"
+if [[ -n "${BOXES_FROM:-}" ]]; then
+    [[ -f "$BOXES_FROM" ]] || { echo "BOXES_FROM not found: $BOXES_FROM"; exit 2; }
+    echo "reusing boxes from $BOXES_FROM (no detection pass)"
+    wytrap classify --records "$BOXES_FROM" --output "$OUT_BC" --classifier bioclip \
+        --vocab "$VOCAB" --device cuda "${BIAS_ARGS[@]}"
+else
+    wytrap detect --input "$IMAGES" --output "$OUT_BC" --classifier bioclip --vocab "$VOCAB" \
+        --detector "$DETECTOR" --det-threshold "$DET_THRESHOLD" --device cuda "${BIAS_ARGS[@]}"
+fi
 BOXES="$OUT_BC/all_records.jsonl"     # every other classifier reuses these boxes
 BC_ARM="$OUT_BC"
 if [[ "$PROMPT_BIAS" == "self" ]]; then

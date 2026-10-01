@@ -1,0 +1,26 @@
+# Shirley Basin cameras (C1-C3 N/S), sagebrush basin. Derived from the
+# unrestricted SpeciesNet census of the first deploy run (2026-09-30,
+# scripts/ai4wy/census.sbatch): kept what appeared with a solid count,
+# dropped the ten nodes never seen (moose, mountain lion, bobcat, skunk,
+# weasel, grouse, corvid, raptor, horse, domestic sheep) and the near-zero
+# ones (wolf, porcupine, raccoon). Added swift fox: SpeciesNet's 11 images of
+# "lycalopex species" (a South American fox genus its geofence does not
+# catch at genus level) are the local small fox. Bear kept provisionally on
+# 11 images; check them.
+#
+# Same format as wyoming_vocab.csv; see wytrap/README.md.
+label,class,order,family,genus,species,prompts
+pronghorn,Mammalia,Artiodactyla,Antilocapridae,Antilocapra,americana,Antilocapra americana|pronghorn
+cattle,Mammalia,Artiodactyla,Bovidae,Bos,taurus,Bos taurus|domestic cattle
+bison,Mammalia,Artiodactyla,Bovidae,Bison,bison,Bison bison|American bison
+deer,Mammalia,Artiodactyla,Cervidae,Odocoileus,,Odocoileus hemionus|mule deer;Odocoileus virginianus|white-tailed deer
+elk,Mammalia,Artiodactyla,Cervidae,Cervus,canadensis,Cervus canadensis|elk
+prairie dog,Mammalia,Rodentia,Sciuridae,Cynomys,,Cynomys leucurus|white-tailed prairie dog;Cynomys ludovicianus|black-tailed prairie dog
+ground squirrel,Mammalia,Rodentia,Sciuridae,Urocitellus,,Urocitellus elegans|Wyoming ground squirrel
+lagomorph,Mammalia,Lagomorpha,,,,Lepus townsendii|white-tailed jackrabbit;Sylvilagus nuttallii|mountain cottontail;Sylvilagus audubonii|desert cottontail
+badger,Mammalia,Carnivora,Mustelidae,Taxidea,taxus,Taxidea taxus|American badger
+coyote,Mammalia,Carnivora,Canidae,Canis,latrans,Canis latrans|coyote
+fox,Mammalia,Carnivora,Canidae,Vulpes,,Vulpes vulpes|red fox;Vulpes velox|swift fox
+domestic dog,Mammalia,Carnivora,Canidae,Canis,familiaris,Canis familiaris|domestic dog
+bear,Mammalia,Carnivora,Ursidae,Ursus,americanus,Ursus americanus|black bear
+bird,Aves,,,,,Centrocercus urophasianus|greater sage-grouse;Corvus corax|common raven;Buteo jamaicensis|red-tailed hawk;Aquila chrysaetos|golden eagle
