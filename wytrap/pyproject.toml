@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "wytrap"
-version = "0.1.0"
-description = "Wyoming camera-trap detection + classification pipeline (MegaDetector v6 -> BioCLIP-2)."
+version = "0.2.0"
+description = "Wyoming camera-trap pipeline: MegaDetector + a choice of species classifiers (BioCLIP 2, SpeciesNet, AddaxAI zoo) behind one command."
 requires-python = ">=3.10"
 license = { text = "Apache License (2.0)" }
 dependencies = [
@@ -14,7 +14,12 @@ dependencies = [
     "torch",
     "Pillow",
     "numpy",
+    "huggingface_hub",
 ]
+
+[project.optional-dependencies]
+speciesnet = ["speciesnet>=5.0"]
+eval = ["matplotlib"]
 
 [project.scripts]
 wytrap = "wytrap.cli:main"

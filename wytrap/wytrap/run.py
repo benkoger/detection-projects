@@ -1,4 +1,15 @@
-"""End-to-end orchestration: image(s) -> detections + species labels."""
+"""The per-image loop: detect, tag box quality, classify, write records.
+
+Two entry points share it:
+
+    process_folder   `wytrap detect`   images -> MegaDetector -> classifier -> records
+    reclassify       `wytrap classify` records of an earlier run -> another classifier,
+                     same boxes and quality tags, only the labels change
+
+Both write one JSON per image (mirroring the input tree) plus
+`all_records.jsonl` and `manifest.json`; BioCLIP runs also write
+`prompts.json` for `wytrap calibrate`.
+"""
 
 from __future__ import annotations
 
@@ -6,6 +17,7 @@ from collections import Counter
 from datetime import datetime
 from pathlib import Path
 from typing import Iterable, Sequence
+import json
 import os
 import sys
 import time
@@ -13,22 +25,25 @@ import time
 import numpy as np
 from PIL import Image
 
-from wytrap.classifier import Classification, Classifier, bioclip_cache_status
+from wytrap.classifiers import BoxClassifier, BoxInput
 from wytrap.detector import Detector
 from wytrap.io import (
     DetectionRecord,
     ImageRecord,
     append_jsonl,
+    common_root,
     output_path_for,
     save_record,
 )
-from wytrap.species_lists import load_species
 
 IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".tif", ".tiff", ".bmp"}
 
 
-def _make_logger(log: callable, t_start: float,
-                 log_file_handle=None):
+# --------------------------------------------------------------------------
+# logging
+# --------------------------------------------------------------------------
+
+def _make_logger(log: callable, t_start: float, log_file_handle=None):
     """Return a `plog(msg, banner=False)` that writes to `log` and (if given)
     also appends to a file. Each line is timestamped + has elapsed seconds."""
     def _emit(line: str) -> None:
@@ -82,9 +97,7 @@ def _fmt_eta(seconds: float) -> str:
 def _iter_images(folder: Path, recursive: bool) -> Iterable[Path]:
     pattern = "**/*" if recursive else "*"
     for p in sorted(folder.glob(pattern)):
-        if not p.is_file():
-            continue
-        if p.suffix.lower() not in IMAGE_EXTS:
+        if not p.is_file() or p.suffix.lower() not in IMAGE_EXTS:
             continue
         # Skip macOS AppleDouble metadata stubs (e.g. ._IMG_0001.JPG) and
         # other hidden dotfiles that PIL cannot decode.
@@ -93,36 +106,9 @@ def _iter_images(folder: Path, recursive: bool) -> Iterable[Path]:
         yield p
 
 
-def _crop(image: Image.Image, box: tuple[int, int, int, int]) -> Image.Image:
-    x1, y1, x2, y2 = box
-    W, H = image.size
-    x1 = max(0, min(x1, W - 1))
-    y1 = max(0, min(y1, H - 1))
-    x2 = max(x1 + 1, min(x2, W))
-    y2 = max(y1 + 1, min(y2, H))
-    return image.crop((x1, y1, x2, y2))
-
-
-def _pad_box(box: tuple[int, int, int, int],
-             image_size: tuple[int, int],
-             factor: float) -> tuple[int, int, int, int]:
-    """Center-expand a box by `factor`, clamped to image bounds.
-
-    factor=2.0 doubles each side around the box center. Clamping at the
-    image edge means a box that's already nearly full-frame stays roughly
-    the same size — the "padded" pass becomes a no-op in that case, which
-    is correct.
-    """
-    x1, y1, x2, y2 = box
-    W, H = image_size
-    cx, cy = (x1 + x2) / 2.0, (y1 + y2) / 2.0
-    bw, bh = (x2 - x1) * factor, (y2 - y1) * factor
-    nx1 = max(0, int(round(cx - bw / 2)))
-    ny1 = max(0, int(round(cy - bh / 2)))
-    nx2 = min(W, int(round(cx + bw / 2)))
-    ny2 = min(H, int(round(cy + bh / 2)))
-    return (nx1, ny1, max(nx1 + 1, nx2), max(ny1 + 1, ny2))
-
+# --------------------------------------------------------------------------
+# box quality
+# --------------------------------------------------------------------------
 
 def assess_box_quality(box: tuple[int, int, int, int],
                        image_size: tuple[int, int],
@@ -134,7 +120,7 @@ def assess_box_quality(box: tuple[int, int, int, int],
 
     Returns (quality, reason). quality is one of:
       - "ok":          box has enough pixels and the animal looks fully framed
-      - "low_pixels":  short side < min_pixel_side — BioCLIP won't have signal
+      - "low_pixels":  short side < min_pixel_side — the classifier won't have signal
       - "truncated":   substantial fraction of box perimeter sits on the image
                        border — animal almost certainly extends out of frame.
                        Treated as PASCAL VOC "difficult": neither TP nor FP at
@@ -142,8 +128,8 @@ def assess_box_quality(box: tuple[int, int, int, int],
       - "thin":        extreme aspect ratio (sliver, leg/tail) — rare; dropped.
 
     Why these criteria:
-      - **Absolute pixel size**, not fraction-of-image. BioCLIP doesn't care
-        about resolution; it cares about how many pixels of animal it sees.
+      - **Absolute pixel size**, not fraction-of-image. The classifier doesn't
+        care about resolution; it cares about how many pixels of animal it sees.
       - **Perimeter-overlap fraction** captures *degree* of truncation rather
         than just "box touches edge". A close-up bison filling 95% of the
         frame has high perimeter overlap → truncated (we can't see the whole
@@ -187,352 +173,287 @@ def assess_box_quality(box: tuple[int, int, int, int],
     return "ok", ""
 
 
+# --------------------------------------------------------------------------
+# classification of one image's boxes
+# --------------------------------------------------------------------------
+
+def classify_boxes(classifier: BoxClassifier | None, image: Image.Image, image_path: str,
+                   dets: list[DetectionRecord], merges: dict[str, str] | None = None) -> None:
+    """Fill the classification fields of `dets` in place. Boxes the classifier
+    returns None for keep the detector's label (person, vehicle) or are marked
+    "skipped" (animal boxes it chose not to classify)."""
+    merges = merges or {}
+    boxes = [BoxInput(tuple(d.box_xyxy), d.det_score, d.det_label, d.quality) for d in dets]
+    results = classifier.classify_image(image, image_path, boxes) if classifier and boxes \
+        else [None] * len(boxes)
+    for d, r in zip(dets, results):
+        if r is None:
+            passthrough = d.det_label if d.det_label != "animal" else "skipped"
+            d.label = passthrough
+            d.fine_label = passthrough if passthrough != "skipped" else ""
+            d.scientific_label, d.cls_score, d.topk = "", 0.0, []
+            d.lineage, d.scale, d.scale_scores = {}, "tight", {}
+            d.cross_scale_agree, d.prompt_logp, d.source = True, {}, ""
+            continue
+        d.label = merges.get(r.label, r.label)
+        d.fine_label = r.label
+        d.scientific_label = r.scientific
+        d.cls_score = r.score
+        d.topk = r.topk
+        d.lineage = r.lineage
+        d.scale = r.scale
+        d.scale_scores = r.scale_scores
+        d.cross_scale_agree = r.cross_scale_agree
+        d.prompt_logp = r.prompt_logp
+        d.source = r.source
+
+
 def process_image(image_path: str | Path,
                   detector: Detector,
-                  classifier: Classifier,
+                  classifier: BoxClassifier | None,
                   merges: dict[str, str] | None = None,
                   min_pixel_side: int = 60,
                   border_overlap_truncated: float = 0.20,
                   max_aspect_ratio: float = 8.0,
-                  skip_classification_when_bad: bool = False,
                   tile: bool = False,
                   tile_size: int = 480,
-                  tile_overlap: float = 0.2,
-                  multiscale: bool = True,
-                  multiscale_pad: float = 2.0) -> ImageRecord:
-    """Run detector + classifier on one image. Returns an ImageRecord.
-
-    With ``multiscale=True`` (default), each detection is classified at
-    three crop scales (tight / padded / full image) and the highest-scoring
-    scale wins. The whole-image classification is computed once per image
-    and shared across all detections, so cost is ~2N + 1 BioCLIP forward
-    passes per image (N detections), not 3N.
-
-    Each detection is also tagged with a ``quality`` field based on box
-    geometry; when ``skip_classification_when_bad`` is True, bad-quality
-    boxes get ``label="skipped"`` and BioCLIP isn't invoked on them.
-    """
+                  tile_overlap: float = 0.2) -> ImageRecord:
+    """Run detector + classifier on one image. Returns an ImageRecord."""
     image_path = Path(image_path)
-    merges = merges or {}
-
     pil = Image.open(image_path).convert("RGB")
-    arr = np.asarray(pil)
     W, H = pil.size
-
-    detections = detector.detect(arr, tile=tile, tile_size=tile_size,
+    detections = detector.detect(np.asarray(pil), tile=tile, tile_size=tile_size,
                                  overlap=tile_overlap)
-    record = ImageRecord(
-        image_path=str(image_path),
-        image_size=[W, H],
-        detections=[],
-    )
-    if not detections:
-        return record
-
-    qualities = [
-        assess_box_quality(
-            d.box_xyxy, (W, H),
-            min_pixel_side=min_pixel_side,
-            border_overlap_truncated=border_overlap_truncated,
-            max_aspect_ratio=max_aspect_ratio,
-        )
-        for d in detections
-    ]
-
-    # Decide which boxes to actually feed to BioCLIP.
-    to_classify_idx: list[int] = []
-    tight_crops: list[Image.Image] = []
-    padded_crops: list[Image.Image] = []
-    for i, (det, (q, _)) in enumerate(zip(detections, qualities)):
-        if skip_classification_when_bad and q != "ok":
-            continue
-        if det.label != "animal":       # person / vehicle: keep the box, no species
-            continue
-        to_classify_idx.append(i)
-        tight_crops.append(_crop(pil, det.box_xyxy))
-        if multiscale:
-            padded_crops.append(_crop(pil, _pad_box(det.box_xyxy, (W, H),
-                                                   multiscale_pad)))
-
-    cls_tight = classifier.classify_batch(tight_crops) if tight_crops else []
-    cls_padded = (classifier.classify_batch(padded_crops)
-                  if multiscale and padded_crops else [None] * len(tight_crops))
-    # Whole-image classification: computed once, shared across all detections.
-    cls_full = classifier.classify(pil) if multiscale and tight_crops else None
-
-    by_idx: dict[int, tuple[Classification, str, dict, bool, dict]] = {}
-    for k, det_idx in enumerate(to_classify_idx):
-        ct = cls_tight[k]
-        scale_scores = {"tight": ct.score}
-        winner_name, winner_cls = "tight", ct
-        agree = True
-        if multiscale:
-            cp = cls_padded[k]
-            scale_scores["padded"] = cp.score
-            scale_scores["full"]   = cls_full.score
-            for name, c in (("padded", cp), ("full", cls_full)):
-                if c.score > winner_cls.score:
-                    winner_name, winner_cls = name, c
-            # Cross-scale agreement: do all three scales pick the same top-1
-            # species? Disagreement is a strong signal that the high-score
-            # winner is overconfident on an uninformative crop (the
-            # 0.99-bison-called-moose pattern).
-            top1_tight  = ct.fine_label
-            top1_padded = cp.fine_label
-            top1_full   = cls_full.fine_label
-            agree = (top1_tight == top1_padded == top1_full)
-        plogp = {"tight": ct.all_logp}
-        if multiscale:
-            plogp["padded"] = cp.all_logp
-            plogp["full"] = cls_full.all_logp
-        by_idx[det_idx] = (winner_cls, winner_name, scale_scores, agree, plogp)
-
-    for i, (det, (q, reason)) in enumerate(zip(detections, qualities)):
-        if i not in by_idx:
-            # Box was skipped — preserve the detection but note it. Non-animal
-            # boxes carry the detector's own label so downstream consumers can
-            # count people and vehicles.
-            passthrough = det.label if det.label != "animal" else "skipped"
-            record.detections.append(DetectionRecord(
-                box_xyxy=list(det.box_xyxy),
-                det_score=det.score,
-                det_label=det.label,
-                label=passthrough,
-                fine_label=passthrough if passthrough != "skipped" else "",
-                scientific_label="",
-                cls_score=0.0,
-                topk=[],
-                quality=q,
-                quality_reason=reason,
-            ))
-            continue
-
-        cls, scale_name, scale_scores, agree, plogp = by_idx[i]
-        canonical = merges.get(cls.fine_label, cls.fine_label)
+    record = ImageRecord(image_path=str(image_path), image_size=[W, H])
+    for det in detections:
+        q, reason = assess_box_quality(det.box_xyxy, (W, H), min_pixel_side=min_pixel_side,
+                                       border_overlap_truncated=border_overlap_truncated,
+                                       max_aspect_ratio=max_aspect_ratio)
         record.detections.append(DetectionRecord(
-            box_xyxy=list(det.box_xyxy),
-            det_score=det.score,
-            det_label=det.label,
-            label=canonical,
-            fine_label=cls.fine_label,
-            scientific_label=cls.scientific_label,
-            cls_score=cls.score,
-            topk=[t.to_dict() for t in cls.topk],
-            quality=q,
-            quality_reason=reason,
-            scale=scale_name,
-            scale_scores={k: round(v, 4) for k, v in scale_scores.items()},
-            cross_scale_agree=agree,
-            prompt_logp=plogp,
-        ))
+            box_xyxy=list(det.box_xyxy), det_score=det.score, det_label=det.label,
+            label="", fine_label="", scientific_label="", cls_score=0.0, topk=[],
+            quality=q, quality_reason=reason))
+    classify_boxes(classifier, pil, str(image_path), record.detections, merges)
     return record
 
 
+# --------------------------------------------------------------------------
+# the loop
+# --------------------------------------------------------------------------
+
+def _preview(record: ImageRecord) -> str:
+    """One-line summary: the most-confident ok-quality box, else any box."""
+    if not record.detections:
+        return "no detections"
+    ok = [d for d in record.detections if d.quality == "ok"]
+    top = max(ok or record.detections, key=lambda d: d.det_score)
+    tag = "" if top.quality == "ok" else f" [{top.quality}]"
+    scale_tag = f" @{top.scale}" if top.scale not in ("tight", "") else ""
+    return (f"{top.label} ({top.cls_score:.2f}){scale_tag}{tag}; "
+            f"{len(record.detections)} box(es), {len(ok)} ok")
+
+
+def _write_manifest(output_dir: Path, classifier: BoxClassifier | None, extra: dict) -> None:
+    m = {"wytrap_version": _version(), "classifier": classifier.describe() if classifier else None}
+    m.update(extra)
+    (output_dir / "manifest.json").write_text(json.dumps(m, indent=2, default=str))
+    prompts = getattr(classifier, "prompts", None)
+    if prompts:
+        # `wytrap calibrate` needs the prompt order and the bias in force
+        (output_dir / "prompts.json").write_text(json.dumps(
+            {"prompts": prompts, "common": classifier.common_names(),
+             "prompt_bias": getattr(classifier, "prompt_bias_path", None)}, indent=1))
+
+
+def _version() -> str:
+    from wytrap import __version__
+    return __version__
+
+
+def _run(items: Sequence, make_record, output_dir: Path, input_root: Path | None,
+         jsonl_path: Path | None, resume: bool, plog, t_start: float) -> dict:
+    """Shared loop: progress, ETA, per-image JSON, aggregate JSONL, summary."""
+    n_done = n_skipped = n_failed = 0
+    n_detections = 0
+    quality_counts: Counter[str] = Counter()
+    label_counts: Counter[str] = Counter()
+    t_loop = time.time()
+    for i, item in enumerate(items, 1):
+        image_path = Path(item if not isinstance(item, dict) else item["image_path"])
+        out_path = output_path_for(image_path, output_dir, input_root=input_root)
+        if resume and out_path.exists():
+            n_skipped += 1
+            continue
+        t0 = time.time()
+        try:
+            record = make_record(item)
+            save_record(record, out_path)
+            if jsonl_path:
+                append_jsonl(record, jsonl_path)
+            n_done += 1
+            n_detections += len(record.detections)
+            for d in record.detections:
+                quality_counts[d.quality] += 1
+                if d.quality == "ok":
+                    label_counts[d.label] += 1
+            avg = (time.time() - t_loop) / max(n_done, 1)
+            plog(f"{i:>4}/{len(items)} {image_path.name:<40} | {time.time() - t0:5.2f}s | "
+                 f"{_preview(record)} | ETA {_fmt_eta((len(items) - i) * avg)}")
+        except Exception as e:
+            n_failed += 1
+            save_record(ImageRecord(image_path=str(image_path), image_size=[0, 0],
+                                    error=f"{type(e).__name__}: {e}"), out_path)
+            print(f"[wytrap] FAILED {image_path}: {e}", file=sys.stderr)
+            plog(f"{i:>4}/{len(items)} {image_path.name:<40} | FAILED: {e}")
+
+    elapsed = time.time() - t_start
+    proc = time.time() - t_loop
+    plog("Run complete", banner=True)
+    plog(f"processed         : {n_done}")
+    plog(f"skipped (resume)  : {n_skipped}")
+    plog(f"failed            : {n_failed}")
+    plog(f"total detections  : {n_detections} "
+         f"({', '.join(f'{k}={v}' for k, v in sorted(quality_counts.items()))})")
+    if n_done and proc > 0:
+        plog(f"throughput        : {n_done / proc:.2f} img/s ({proc / n_done:.2f}s/img)")
+    plog(f"wall time         : {_fmt_eta(elapsed)} (processing {_fmt_eta(proc)})")
+    if label_counts:
+        plog("top labels (ok quality only):")
+        for lab, n in label_counts.most_common(10):
+            plog(f"    {n:>5}  {lab}")
+    return {"processed": n_done, "skipped": n_skipped, "failed": n_failed,
+            "elapsed_seconds": elapsed, "label_counts": dict(label_counts),
+            "quality_counts": dict(quality_counts)}
+
+
+def _open_log(output_dir: Path, log_file, log):
+    output_dir.mkdir(parents=True, exist_ok=True)
+    log_file = Path(log_file) if log_file else output_dir / "wytrap.log"
+    log_file.parent.mkdir(parents=True, exist_ok=True)
+    fh = open(log_file, "a")
+    t_start = time.time()
+    return _make_logger(log, t_start, log_file_handle=fh), t_start, log_file
+
+
+# --------------------------------------------------------------------------
+# entry points
+# --------------------------------------------------------------------------
+
 def process_folder(input_dir: str | Path,
                    output_dir: str | Path,
-                   species: str | Sequence = "wyoming_all",
-                   det_threshold: float = 0.50,
-                   cls_topk: int = 5,
-                   batch_size: int = 8,
+                   classifier: BoxClassifier | None,
+                   detector_version: str = Detector.DEFAULT_VERSION,
+                   det_threshold: float = 0.20,
+                   det_imgsz: int | None = None,
+                   keep_labels: Sequence[str] = ("animal",),
                    device: str = "auto",
-                   recursive: bool = False,
-                   resume: bool = False,
+                   recursive: bool = True,
+                   resume: bool = True,
                    jsonl_path: str | Path | None = None,
                    merges: dict[str, str] | None = None,
                    min_pixel_side: int = 60,
                    border_overlap_truncated: float = 0.20,
                    max_aspect_ratio: float = 8.0,
-                   skip_classification_when_bad: bool = False,
                    tile: bool = False,
                    tile_size: int = 480,
                    tile_overlap: float = 0.2,
-                   multiscale: bool = True,
-                   multiscale_pad: float = 2.0,
                    log: callable = print,
-                   log_file: str | Path | None = None,
-                   detector_version: str = Detector.DEFAULT_VERSION,
-                   det_imgsz: int | None = None,
-                   prompt_bias: str | Path | None = None,
-                   keep_labels: Sequence[str] = ("animal",)) -> dict:
-    """Run the full pipeline over a folder of images. Returns summary dict."""
-    input_dir = Path(input_dir)
-    output_dir = Path(output_dir)
-    output_dir.mkdir(parents=True, exist_ok=True)
-
-    # Default the persistent log file to live next to the JSON outputs so
-    # the run survives even after the SLURM .out file is gone.
-    if log_file is None:
-        log_file = output_dir / "wytrap.log"
-    log_file = Path(log_file)
-    log_file.parent.mkdir(parents=True, exist_ok=True)
-    log_fh = open(log_file, "a")
-
-    t_start = time.time()
-    plog = _make_logger(log, t_start, log_file_handle=log_fh)
-
-    species_list = load_species(species) if isinstance(species, str) else list(species)
+                   log_file: str | Path | None = None) -> dict:
+    """`wytrap detect`: MegaDetector, then `classifier` (None = detection only)."""
+    input_dir, output_dir = Path(input_dir), Path(output_dir)
+    plog, t_start, log_file = _open_log(output_dir, log_file, log)
 
     plog("Initializing wytrap pipeline", banner=True)
     _log_environment(plog)
     plog(f"log file          : {log_file}")
     plog(f"input dir         : {input_dir}")
     plog(f"output dir        : {output_dir}")
-    plog(f"species list      : {len(species_list)} names "
-         f"({species if isinstance(species, str) else 'custom sequence'})")
+    plog(f"classifier        : {classifier.name if classifier else 'none (detection only)'}")
+    if classifier:
+        for k, v in classifier.describe().items():
+            if k != "classifier" and v is not None and not isinstance(v, (dict, list)):
+                plog(f"  {k:<16}: {v}")
     plog(f"det threshold     : {det_threshold}")
-    plog(f"cls topk          : {cls_topk}")
     plog(f"box quality       : min_pixel_side={min_pixel_side}px, "
-         f"border_overlap>={border_overlap_truncated:.0%}, "
-         f"ar>{max_aspect_ratio}, "
-         f"skip_bad={skip_classification_when_bad}")
-    plog(f"sliced detection  : tile={tile}, tile_size={tile_size}, "
-         f"overlap={tile_overlap}")
-    plog(f"multi-scale cls   : multiscale={multiscale}, "
-         f"pad_factor={multiscale_pad}")
-    plog(f"device requested  : {device}")
+         f"border_overlap>={border_overlap_truncated:.0%}, ar>{max_aspect_ratio}")
+    plog(f"sliced detection  : tile={tile}, tile_size={tile_size}, overlap={tile_overlap}")
     plog(f"recursive / resume: {recursive} / {resume}")
     if jsonl_path:
         plog(f"jsonl aggregate   : {jsonl_path}")
 
     plog(f"Loading MegaDetector ({detector_version})", banner=True)
-    detector = Detector(device=device, det_threshold=det_threshold,
-                        version=detector_version, imgsz=det_imgsz,
-                        keep_labels=tuple(keep_labels))
-    plog(f"detector ready (device resolved to: {detector.device}, "
-         f"imgsz={detector.imgsz}, keep_labels={sorted(detector.keep_labels)})")
-
-    plog("Loading BioCLIP-2 classifier", banner=True)
-    cache_info = bioclip_cache_status()
-    if cache_info["status"] == "cached":
-        plog(f"weights source    : LOCAL CACHE ({cache_info['cache_dir']})")
-        for fname, path in cache_info["cached_paths"].items():
-            plog(f"  hit             : {fname} -> {path}")
-    elif cache_info["status"] == "partial":
-        plog(f"weights source    : PARTIAL CACHE ({cache_info['cache_dir']}) "
-             f"- will download {cache_info['missing']}")
-    elif cache_info["status"] == "missing":
-        plog(f"weights source    : REMOTE (HuggingFace) - downloading to "
-             f"{cache_info['cache_dir']} on first use")
-    else:
-        plog("weights source    : unknown (huggingface_hub probe failed)")
-    bias = None
-    if prompt_bias:
-        import json as _json
-        bias = _json.loads(Path(prompt_bias).read_text())
-        bias = bias.get("bias", bias)   # accept {"bias": {...}} or a flat map
-        plog(f"prompt bias       : {prompt_bias} ({len(bias)} prompts)")
-    classifier = Classifier(species=species_list, topk=cls_topk, device=device,
-                            prompt_bias=bias)
-    import json as _json2
-    (output_dir / "prompts.json").write_text(_json2.dumps(
-        {"prompts": classifier.prompts,
-         "common": {sp["scientific"]: sp["common"] for sp in classifier.species},
-         "prompt_bias": prompt_bias and str(prompt_bias)}, indent=1))
-    plog(f"classifier ready on {classifier.device} "
-         f"({len(classifier.species)} text embeddings cached)")
+    detector = Detector(device=device, det_threshold=det_threshold, version=detector_version,
+                        imgsz=det_imgsz, keep_labels=tuple(keep_labels))
+    plog(f"detector ready (device {detector.device}, imgsz={detector.imgsz}, "
+         f"keep_labels={sorted(detector.keep_labels)})")
 
     plog("Scanning input folder", banner=True)
     images = list(_iter_images(input_dir, recursive))
     plog(f"found {len(images)} image(s) (extensions: {sorted(IMAGE_EXTS)})")
+    _write_manifest(output_dir, classifier, {
+        "command": "detect", "input": str(input_dir), "images": len(images),
+        "detector": {"version": detector_version, "threshold": det_threshold,
+                     "imgsz": detector.imgsz, "keep_labels": sorted(detector.keep_labels),
+                     "tile": tile},
+        "box_quality": {"min_pixel_side": min_pixel_side,
+                        "border_overlap_truncated": border_overlap_truncated,
+                        "max_aspect_ratio": max_aspect_ratio}})
     if not images:
         plog("No images to process. Exiting.")
         return {"processed": 0, "skipped": 0, "failed": 0, "elapsed_seconds": 0.0,
                 "label_counts": {}}
 
     plog("Processing images", banner=True)
-    n_done = n_skipped = n_failed = 0
-    n_detections_total = 0
-    n_quality_ok = 0
-    quality_counts: Counter[str] = Counter()
-    label_counts: Counter[str] = Counter()
-    t_loop = time.time()
+    return _run(images, lambda p: process_image(
+        p, detector, classifier, merges=merges, min_pixel_side=min_pixel_side,
+        border_overlap_truncated=border_overlap_truncated, max_aspect_ratio=max_aspect_ratio,
+        tile=tile, tile_size=tile_size, tile_overlap=tile_overlap),
+        output_dir, input_dir, Path(jsonl_path) if jsonl_path else None, resume, plog, t_start)
 
-    for i, image_path in enumerate(images, 1):
-        out_path = output_path_for(image_path, output_dir, input_root=input_dir)
-        if resume and out_path.exists():
-            n_skipped += 1
-            continue
-        t0 = time.time()
-        try:
-            record = process_image(
-                image_path, detector, classifier, merges=merges,
-                min_pixel_side=min_pixel_side,
-                border_overlap_truncated=border_overlap_truncated,
-                max_aspect_ratio=max_aspect_ratio,
-                skip_classification_when_bad=skip_classification_when_bad,
-                tile=tile, tile_size=tile_size, tile_overlap=tile_overlap,
-                multiscale=multiscale, multiscale_pad=multiscale_pad,
-            )
-            save_record(record, out_path)
-            if jsonl_path:
-                append_jsonl(record, jsonl_path)
-            n_done += 1
-            n_detections_total += len(record.detections)
-            dt = time.time() - t0
 
-            # Build a one-line preview of what we found. The headline label
-            # is the most-confident *ok-quality* detection if any exist;
-            # otherwise the most-confident detection regardless of quality.
-            for d in record.detections:
-                quality_counts[d.quality] += 1
-                if d.quality == "ok":
-                    n_quality_ok += 1
-                    label_counts[d.label] += 1
-            if record.detections:
-                ok_dets = [d for d in record.detections if d.quality == "ok"]
-                pool = ok_dets or record.detections
-                top = max(pool, key=lambda d: d.det_score)
-                tag = "" if top.quality == "ok" else f" [{top.quality}]"
-                scale_tag = f" @{top.scale}" if top.scale != "tight" else ""
-                preview = (f"{top.label} ({top.cls_score:.2f}){scale_tag}{tag}; "
-                           f"{len(record.detections)} box(es), "
-                           f"{len(ok_dets)} ok")
-            else:
-                preview = "no detections"
+def reclassify(records_path: str | Path,
+               output_dir: str | Path,
+               classifier: BoxClassifier,
+               jsonl_path: str | Path | None = None,
+               merges: dict[str, str] | None = None,
+               log: callable = print,
+               log_file: str | Path | None = None) -> dict:
+    """`wytrap classify`: re-label the boxes of an earlier run with another
+    classifier. Boxes, scores and quality tags are copied; the per-image JSONs
+    mirror the images' tree below their common root."""
+    records_path, output_dir = Path(records_path), Path(output_dir)
+    plog, t_start, log_file = _open_log(output_dir, log_file, log)
+    plog("Initializing wytrap classify", banner=True)
+    _log_environment(plog)
+    plog(f"log file          : {log_file}")
+    plog(f"records           : {records_path}")
+    plog(f"output dir        : {output_dir}")
+    plog(f"classifier        : {classifier.name}")
+    for k, v in classifier.describe().items():
+        if k != "classifier" and v is not None and not isinstance(v, (dict, list)):
+            plog(f"  {k:<16}: {v}")
 
-            avg = (time.time() - t_loop) / max(n_done, 1)
-            remaining = (len(images) - i) * avg
-            plog(f"{i:>4}/{len(images)} {image_path.name:<40} "
-                 f"| {dt:5.2f}s | {preview} | ETA {_fmt_eta(remaining)}")
-        except Exception as e:
-            n_failed += 1
-            err_record = ImageRecord(
-                image_path=str(image_path),
-                image_size=[0, 0],
-                error=f"{type(e).__name__}: {e}",
-            )
-            save_record(err_record, out_path)
-            print(f"[wytrap] FAILED {image_path}: {e}", file=sys.stderr)
-            plog(f"{i:>4}/{len(images)} {image_path.name:<40} | FAILED: {e}")
+    records = [json.loads(l) for l in open(records_path) if l.strip()]
+    root = common_root([r["image_path"] for r in records])
+    plog(f"{len(records)} records, images under {root}")
+    if jsonl_path is None:
+        jsonl_path = output_dir / "all_records.jsonl"
+    jsonl_path = Path(jsonl_path)
+    if jsonl_path.exists():        # a re-run must not append to the old aggregate
+        jsonl_path.unlink()
+    _write_manifest(output_dir, classifier, {
+        "command": "classify", "records": str(records_path), "images": len(records)})
 
-    elapsed = time.time() - t_start
-    proc_elapsed = time.time() - t_loop
-    throughput = (n_done / proc_elapsed) if proc_elapsed > 0 and n_done else 0.0
+    def make_record(r: dict) -> ImageRecord:
+        dets = [DetectionRecord(**{k: v for k, v in d.items() if k in DetectionRecord.__dataclass_fields__})
+                for d in (r.get("detections") or [])]
+        rec = ImageRecord(image_path=r["image_path"], image_size=r["image_size"],
+                          detections=dets, error=r.get("error"))
+        if dets:
+            with Image.open(r["image_path"]) as im:
+                pil = im.convert("RGB")
+            classify_boxes(classifier, pil, r["image_path"], dets, merges)
+        return rec
 
-    plog("Run complete", banner=True)
-    plog(f"processed         : {n_done}")
-    plog(f"skipped (resume)  : {n_skipped}")
-    plog(f"failed            : {n_failed}")
-    plog(f"total detections  : {n_detections_total} "
-         f"(ok={n_quality_ok}, "
-         f"{', '.join(f'{q}={n}' for q, n in sorted(quality_counts.items()) if q != 'ok')})")
-    plog(f"throughput        : {throughput:.2f} img/s "
-         f"({(1.0/throughput):.2f}s/img)" if throughput else "throughput        : n/a")
-    plog(f"wall time         : {_fmt_eta(elapsed)} "
-         f"(processing {_fmt_eta(proc_elapsed)})")
-
-    if label_counts:
-        plog("top labels (ok quality only):")
-        for name, count in label_counts.most_common(10):
-            plog(f"  {count:>5}  {name}")
-
-    log_fh.close()
-    return {
-        "processed": n_done,
-        "skipped": n_skipped,
-        "failed": n_failed,
-        "elapsed_seconds": elapsed,
-        "label_counts": dict(label_counts),
-        "quality_counts": dict(quality_counts),
-        "log_file": str(log_file),
-    }
+    plog("Classifying", banner=True)
+    return _run(records, make_record, output_dir, root, jsonl_path, False, plog, t_start)

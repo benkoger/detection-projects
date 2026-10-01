@@ -10,7 +10,7 @@
 # Re-running after failures is safe: wytrap resumes, the other arms are fast.
 #
 # When the array is done, one table for everything:
-#   python scripts/merge_predictions.py --combine <OUT_ROOT>
+#   wytrap merge --combine <OUT_ROOT>
 set -euo pipefail
 ROOT=$(realpath "${1:?usage: deploy_submit.sh IMAGES_ROOT [OUT_ROOT]}")
 OUT="${2:-$(dirname "$ROOT")/output}"

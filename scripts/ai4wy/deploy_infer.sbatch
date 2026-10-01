@@ -1,13 +1,13 @@
 #!/bin/bash
 # Inference only, no labels: MegaDetector once, then the three classifiers
-# (BioCLIP 2 with prior correction, SpeciesNet with roll-up, Western USA
-# SDZWA) on the same boxes, restricted to one shared candidate set, merged
+# (BioCLIP 2 with prior correction, SpeciesNet with roll-up and geofence,
+# Western USA SDZWA) on the same boxes and the same candidate set, merged
 # into one side-by-side table per image and per box.
 #
 # One folder per job. For a tree of camera folders use deploy_submit.sh,
 # which submits this as a Slurm array with one task per camera folder.
 #
-#   IMAGES=/project/uwyo-0007/data/wysoundscape/images/CAM01 \
+#   IMAGES=/project/uwyo-0007/data/CameraTrap_test/CAM01 \
 #       sbatch scripts/ai4wy/deploy_infer.sbatch
 #
 # Env-vars:
@@ -17,12 +17,12 @@
 #                 (or OUT_ROOT_BASE/<basename> when set by deploy_submit.sh)
 #   VOCAB         default taxonomy/wyoming_vocab.csv
 #   DETECTOR      default MDV1000-redwood (what AddaxAI Connect runs)
-#   DET_THRESHOLD default 0.20 (record floor; merge_predictions --min-det raises it)
+#   DET_THRESHOLD default 0.20 (record floor; `wytrap merge --min-det` raises it)
 #   PROMPT_BIAS   BioCLIP prior-correction file; default: the one estimated
 #                 on Idaho. "none" disables; "self" re-estimates on this folder
 #                 (needs several camera sub-folders to be meaningful).
-#   SN_MODEL      default hf:Addax-Data-Science/SPECIESNET-v4-0-2-A
 #   ZOO           default Addax-Data-Science/WUSA-SDZWA-v1
+#   ADMIN1        geofence state for the SpeciesNet ensemble (default WY)
 #SBATCH --job-name=wytrap-deploy
 #SBATCH --account=uwyo-0007
 #SBATCH --partition=gp-1,gp-2
@@ -48,15 +48,13 @@ fi
 [[ -n "${IMAGES:-}" && -d "$IMAGES" ]] || { echo "IMAGES must be an existing folder (got '${IMAGES:-}')"; exit 2; }
 IMAGES=$(realpath "$IMAGES")
 NAME=$(basename "$IMAGES")
-# array tasks (deploy_submit.sh) land in OUT_ROOT_BASE/<camera>; a single
-# job defaults to a sibling folder of IMAGES
 OUT_ROOT="${OUT_ROOT:-${OUT_ROOT_BASE:+$OUT_ROOT_BASE/$NAME}}"
 OUT_ROOT="${OUT_ROOT:-$(dirname "$IMAGES")/output-$NAME}"
 VOCAB="${VOCAB:-taxonomy/wyoming_vocab.csv}"
 DETECTOR="${DETECTOR:-MDV1000-redwood}"
 DET_THRESHOLD="${DET_THRESHOLD:-0.20}"
-SN_MODEL="${SN_MODEL:-hf:Addax-Data-Science/SPECIESNET-v4-0-2-A}"
 ZOO="${ZOO:-Addax-Data-Science/WUSA-SDZWA-v1}"
+ADMIN1="${ADMIN1:-WY}"
 PROMPT_BIAS="${PROMPT_BIAS:-/project/uwyo-0007/data/idaho-100pc/output-bioclip-idaho_vocab-mdv1000-redwood-calib/prompt_bias.json}"
 VTAG=$(basename "$VOCAB" .csv)
 DTAG=$(echo "$DETECTOR" | tr '[:upper:]' '[:lower:]')
@@ -67,9 +65,6 @@ mkdir -p "$OUT_ROOT"
 echo "node: $(hostname)  images: $IMAGES  out: $OUT_ROOT  vocab: $VOCAB  detector: $DETECTOR"
 nvidia-smi --query-gpu=name,driver_version --format=csv,noheader
 
-echo "===== candidate lists ====="
-python scripts/build_vocab_lists.py "$VOCAB" --speciesnet-model "$SN_MODEL" --zoo $ZOO
-
 echo "===== MegaDetector ($DETECTOR) + BioCLIP 2 ====="
 OUT_BC="$OUT_ROOT/bioclip-$VTAG-$DTAG"
 BIAS_ARGS=()
@@ -77,36 +72,30 @@ if [[ "$PROMPT_BIAS" != "none" && "$PROMPT_BIAS" != "self" ]]; then
     [[ -f "$PROMPT_BIAS" ]] || { echo "PROMPT_BIAS file not found: $PROMPT_BIAS"; exit 2; }
     BIAS_ARGS=(--prompt-bias "$PROMPT_BIAS")
 fi
-wytrap detect --input "$IMAGES" --output "$OUT_BC" \
-    --species "${VOCAB%.csv}.bioclip.txt" --detector "$DETECTOR" \
-    --det-threshold "$DET_THRESHOLD" --keep-labels animal,person,vehicle \
-    --device cuda --recursive --resume "${BIAS_ARGS[@]}" \
-    --jsonl "$OUT_BC/all_records.jsonl"
-BOXES="$OUT_BC/all_records.jsonl"   # every other arm reuses these boxes
+wytrap detect --input "$IMAGES" --output "$OUT_BC" --classifier bioclip --vocab "$VOCAB" \
+    --detector "$DETECTOR" --det-threshold "$DET_THRESHOLD" --device cuda "${BIAS_ARGS[@]}"
+BOXES="$OUT_BC/all_records.jsonl"     # every other classifier reuses these boxes
 BC_ARM="$OUT_BC"
 if [[ "$PROMPT_BIAS" == "self" ]]; then
     echo "===== BioCLIP 2 prior correction estimated on this folder ====="
     BC_ARM="$OUT_BC-calib"
-    python scripts/calibrate_bioclip.py --pred "$OUT_BC" --output "$BC_ARM"
+    wytrap calibrate --pred "$OUT_BC" --output "$BC_ARM"
 fi
 
-echo "===== SpeciesNet + roll-up, candidate set ====="
+echo "===== SpeciesNet + roll-up + geofence ====="
 OUT_SN="$OUT_ROOT/speciesnet-ens-$VTAG-$DTAG"
-python scripts/run_speciesnet_arms.py ensemble --images "$IMAGES" \
-    --output "$OUT_SN" --model "$SN_MODEL" --vocab "$VOCAB" --detections-from "$BOXES"
+wytrap classify --records "$BOXES" --output "$OUT_SN" --classifier speciesnet-ensemble \
+    --vocab "$VOCAB" --admin1 "$ADMIN1"
 
-ARMS=("bioclip=$BC_ARM" "speciesnet=$OUT_SN")
+ARMS=(--arm "bioclip=$BC_ARM" --arm "speciesnet=$OUT_SN")
 for M in $ZOO; do
     T=$(basename "$M" | tr '[:upper:]' '[:lower:]')
     OUT="$OUT_ROOT/addax-$T-$VTAG-$DTAG"
-    echo "===== $M, candidate set ====="
-    python scripts/run_addax_model_arm.py --model "$M" --wytrap-records "$BOXES" \
-        --output "$OUT" --vocab "$VOCAB"
-    ARMS+=("${T%%-*}=$OUT")
+    echo "===== $M ====="
+    wytrap classify --records "$BOXES" --output "$OUT" --classifier addax --model "$M" --vocab "$VOCAB"
+    ARMS+=(--arm "${T%%-*}=$OUT")
 done
 
 echo "===== merge ====="
-MERGE_ARGS=()
-for a in "${ARMS[@]}"; do MERGE_ARGS+=(--arm "$a"); done
-python scripts/merge_predictions.py --out "$OUT_ROOT/merged" "${MERGE_ARGS[@]}"
+wytrap merge --out "$OUT_ROOT/merged" "${ARMS[@]}"
 echo "[deploy_infer] done: $OUT_ROOT/merged/images.csv"

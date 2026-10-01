@@ -11,7 +11,7 @@
 #   SPECIES     default wyoming_all; or a species file, e.g.
 #               SPECIES=scripts/ai4wy/species_idaho.txt (closed-set arm)
 #   LABELS      default $INPUT_DIR/../labels.json (from fetch_idaho_subset.py)
-#   EVAL=0      skip scripts/eval_image_level.py after inference
+#   EVAL=0      skip wytrap eval after inference
 #   SEQ_LEVEL=1 evaluate per sequence (use with --whole-sequences subsets)
 #   AGG=vote    image-level label aggregation (default max_score)
 #   DETECTOR    default auto: MDV6-yolov9-e if cached, else MDV1000-redwood
@@ -77,9 +77,7 @@ wytrap detect \
     --species "${SPECIES:-wyoming_all}" \
     --det-threshold "${DET_THRESHOLD:-0.50}" \
     --detector "$DETECTOR" \
-    --device cuda \
-    --recursive \
-    --resume \
+    --device cuda --keep-labels animal \
     --jsonl "$OUTPUT_DIR/all_records.jsonl" \
     $SKIP_BAD_FLAG $TILE_FLAG $NO_MULTISCALE_FLAG ${EXTRA_ARGS:-}
 
@@ -87,7 +85,7 @@ echo "[run_idaho] inference done. per-image JSON under $OUTPUT_DIR, log at $OUTP
 
 if [[ "${EVAL:-1}" == "1" && -f "$LABELS" ]]; then
     SEQ_FLAG=""; [[ "${SEQ_LEVEL:-0}" == "1" ]] && SEQ_FLAG="--sequence-level"
-    python scripts/eval_image_level.py \
+    wytrap eval \
         --labels "$LABELS" --pred "$OUTPUT_DIR" \
         --det-threshold "${DET_THRESHOLD:-0.50}" \
         --agg "${AGG:-max_score}" --quality "${QUALITY:-ok}" $SEQ_FLAG

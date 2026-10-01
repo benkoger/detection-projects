@@ -1,3 +1,16 @@
+# detection-projects
+
+Two packages live here:
+
+- **`wytrap/`** — the camera-trap pipeline: MegaDetector plus a choice of
+  species classifiers (BioCLIP 2, SpeciesNet, AddaxAI zoo models) behind one
+  `wytrap` command, with a shared species vocabulary, an evaluator and
+  side-by-side comparison. Start with [`wytrap/README.md`](wytrap/README.md);
+  cluster job scripts and results are in
+  [`scripts/ai4wy/README.md`](scripts/ai4wy/README.md).
+- **`koger_detection/`** — annotation, training and inference tooling for
+  object detectors, described below.
+
 # koger_detection
 
 Notebooks and code for efficiently annotating, training, and using object detection models.

@@ -15,7 +15,7 @@ questions are answered:
      least one detection, an image-level species is derived from the boxes
      (--agg max_score: the highest-det_score box wins; --agg vote: sum of
      det_score*cls_score per label) and compared with the label after both
-     sides pass through helpers.IDAHO_EVAL_MERGES. Top-1 / top-k accuracy,
+     sides pass through taxonomy.IDAHO_EVAL_MERGES. Top-1 / top-k accuracy,
      confusion matrix, per-class precision/recall, accuracy-vs-coverage over
      a cls_score floor, and splits by hour-of-day and wytrap quality tag.
 
@@ -25,7 +25,7 @@ questions are answered:
   sequence-label-on-empty-frame noise.
 
 Usage:
-    python scripts/eval_image_level.py \\
+    wytrap eval \\
         --labels /path/to/labels.json \\
         --pred   /path/to/output-wytrap \\
         [--out   /path/to/output-wytrap/eval] \\
@@ -45,14 +45,9 @@ import sys
 from collections import Counter, defaultdict
 from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
-for sub in (REPO_ROOT, REPO_ROOT / "wytrap"):
-    if str(sub) not in sys.path:
-        sys.path.insert(0, str(sub))
-
-from helpers.helpers import IDAHO_EVAL_MERGES  # noqa: E402
-from helpers.vocab import Vocab  # noqa: E402
-from wytrap.io import load_record  # noqa: E402
+from wytrap.io import load_record
+from wytrap.taxonomy import IDAHO_EVAL_MERGES
+from wytrap.vocab import Vocab
 
 log = logging.getLogger("wytrap.eval_image")
 
@@ -438,9 +433,7 @@ def build_items(labels: list[dict], preds: dict[str, dict], merges: dict[str, st
     return seq_items, missing
 
 
-def main(argv: list[str] | None = None) -> int:
-    ap = argparse.ArgumentParser(description=__doc__,
-                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+def add_arguments(ap: argparse.ArgumentParser) -> None:
     ap.add_argument("--labels", required=True)
     ap.add_argument("--pred", required=True)
     ap.add_argument("--out", default=None, help="default: <pred>/eval")
@@ -456,7 +449,16 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--vocab", default=None,
                     help="taxon-node vocabulary CSV (taxonomy/idaho_vocab.csv); predictions "
                          "resolve by lineage / scientific name instead of string merges")
-    args = ap.parse_args(argv)
+
+
+def main(argv: list[str] | None = None) -> int:
+    ap = argparse.ArgumentParser(description=__doc__,
+                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    add_arguments(ap)
+    return run(ap.parse_args(argv))
+
+
+def run(args: argparse.Namespace) -> int:
     args.det_sweep = [float(x) for x in args.det_sweep.split(",")]
     args.cls_sweep = [float(x) for x in args.cls_sweep.split(",")]
     args.top_ks = [int(x) for x in args.top_ks.split(",")]

@@ -1,210 +1,111 @@
 # Running wytrap on ai4wy (GannettPeak)
 
-GannettPeak is ARCC's AI cluster: 36 Grace Hopper nodes (ARM Neoverse V2 CPUs,
-H100 GPUs), Slurm partitions `gp-1` (1 GPU/node) and `gp-2` (2 GPUs/node; the ARCC docs call them ai4wy-1/2 but sinfo says gp-1/2),
-login node `ai4wy-log2` or the Open OnDemand portal at https://ai4wy.arcc.uwyo.edu.
-Every job needs `--account`. Nothing CUDA-related works without `--gres=gpu:N`.
-
-Because the nodes are **aarch64**, the old beartooth venv cannot be reused.
-These scripts build a fresh one with uv under `/project/uwyo-0007/software`.
+ai4wy is ARCC's GannettPeak cluster: Grace Hopper nodes (aarch64 CPUs,
+H100-class GPUs), Slurm partitions `gp-1` (1 GPU/node) and `gp-2` (2
+GPUs/node), account `uwyo-0007`. Everything below runs from the repo root at
+`/project/uwyo-0007/software/detection-projects`. The pipeline itself is the
+`wytrap` command; `wytrap/README.md` explains what it does and how to extend
+it. These job scripts only decide which images, which classifiers, and which
+Slurm resources.
 
 ## One-time setup (login node)
 
 ```bash
 cd /project/uwyo-0007/software/detection-projects
-bash scripts/ai4wy/setup_env.sh          # uv + venv + deps + import check (~5 min)
-bash scripts/ai4wy/prefetch_weights.sh   # MegaDetector v6 + BioCLIP 2 into /project/uwyo-0007/software/models
+bash scripts/ai4wy/setup_env.sh          # uv venv at /project/uwyo-0007/software/.venv-wytrap
+bash scripts/ai4wy/prefetch_weights.sh   # MegaDetector + BioCLIP 2 into /project/uwyo-0007/software/models
 ```
 
-## Pull the Idaho Camera Traps test subset (login node)
+`setup_env.sh` installs `requirements-ai4wy.txt` (PytorchWildlife, pybioclip,
+speciesnet, torch for CUDA 13) and `wytrap` in editable mode, and registers a
+Jupyter kernel named "wytrap (ai4wy)". SpeciesNet and the AddaxAI zoo models
+download on first use from Hugging Face; compute nodes have outbound HTTPS.
+
+The group directory is setgid and every script sets `umask 002`, so files
+written by one member stay writable by the others.
+
+## Jobs
+
+| script | what it does | typical time |
+|---|---|---|
+| `fetch_and_run_idaho.sbatch` | fetch a LILA Idaho subset on the compute node, run BioCLIP 2, evaluate | 20 min at `PER_CLASS=20` |
+| `run_idaho.sbatch` | BioCLIP 2 + eval on an already-fetched subset | 10 min |
+| `detector_sweep.sbatch` | several detector settings on one subset, one table | 1 h |
+| `compare_classifiers.sbatch` | every classifier on the same boxes and candidate set, one table | 30 min at `PER_CLASS=100` |
+| `deploy_infer.sbatch` | unlabelled folder: detector once, three classifiers, merged table | 2 h per 20k images |
+| `deploy_submit.sh` | `deploy_infer` as a Slurm array, one task per camera folder | |
+
+All take their settings as environment variables, documented in each file's
+header. Submit from the repo root so `logs/` and `taxonomy/` resolve:
 
 ```bash
-source /project/uwyo-0007/software/.venv-wytrap/bin/activate
-python scripts/fetch_idaho_subset.py \
-    --out /project/uwyo-0007/data/idaho-subset --per-class 100 --workers 16
+PER_CLASS=100 NEGATIVES=40 sbatch scripts/ai4wy/fetch_and_run_idaho.sbatch
+DATA_DIR=/project/uwyo-0007/data/idaho-100pc sbatch scripts/ai4wy/compare_classifiers.sbatch
 ```
 
-Defaults sample up to 100 single-label images per class, at most one frame per
-sequence, across 23 classes that overlap the Wyoming species lists plus
-`empty`. That is roughly 2,200 images at about 1.6 MB each, so 3 to 4 GB. Use `--per-class 20` for a first 10-minute smoke test.
-`labels.json` carries image-level ground truth; the LILA dataset has no boxes.
+Each job is a handful of `wytrap` calls; read the script to see them, and
+copy the lines into an interactive session (`salloc --account=uwyo-0007
+--partition=gp-1,gp-2 --gres=gpu:1`) to try something new.
 
-For evaluation-grade subsets, add hard negatives and whole sequences:
+## Evaluation data: LILA Idaho Camera Traps
+
+`scripts/fetch_idaho_subset.py` pulls a class-balanced subset (one frame per
+sequence by default) plus camera-problem negatives, writing
+`<out>/images/loc_XXXX_im_NNNNNN.jpg` and `<out>/labels.json`. Labels are
+per sequence and carry no boxes, so `wytrap eval` scores presence/absence
+and image-level species. Humans, vehicles and dogs are absent from the
+public set, and the "other" co-label on rare species is ignored. Species
+present: deer, elk, moose, pronghorn, bighorn sheep, cattle, wolf, coyote,
+fox, bear, mountain lion, bobcat, skunk, lagomorphs, squirrels, turkey,
+grouse.
+
+Caveat for every number: SpeciesNet and the Western USA model were trained
+largely on LILA data, very likely including these cameras; BioCLIP 2 was
+not. Idaho measures the supervised models on familiar data.
+
+## Results so far (idaho-100pc, 982 animal images, redwood boxes, shared candidate set)
+
+| classifier | top-1 | hierarchical | top-3 |
+|---|---|---|---|
+| SpeciesNet, restricted | 0.960 | 0.960 | 0.985 |
+| SpeciesNet + roll-up, restricted | 0.942 | 0.976 | 0.984 |
+| SpeciesNet, all 2,498 labels | 0.945 | 0.954 | 0.983 |
+| Western USA SDZWA, restricted | 0.929 | 0.929 | 0.978 |
+| BioCLIP 2 + prior correction | 0.841 | 0.841 | 0.928 |
+| BioCLIP 2 | 0.833 | 0.833 | 0.906 |
+
+Detector: MDv1000 redwood at native 1280 px, floor 0.30, is the best value
+(F1 0.89 for presence/absence). Larger input sizes and tiling trade recall
+for false positives on these cameras.
+
+## Deployment: unlabelled camera folders
+
+The WySoundscape images live on MedicineBow and `/project` is not shared,
+so they were copied to `/project/uwyo-0007/data/CameraTrap_test` (Globus
+for hundreds of GB; rsync for a single camera). Then:
 
 ```bash
-python scripts/fetch_idaho_subset.py \
-    --out /project/uwyo-0007/data/idaho-seq --per-class 60 --whole-sequences \
-    --negatives-per-class 40
+# one camera
+IMAGES=/project/uwyo-0007/data/CameraTrap_test/<CAM> sbatch scripts/ai4wy/deploy_infer.sbatch
+
+# every camera folder as an array (8 at once), then one table for all of them
+scripts/ai4wy/deploy_submit.sh /project/uwyo-0007/data/CameraTrap_test /project/uwyo-0007/data/CameraTrap_output
+wytrap merge --combine /project/uwyo-0007/data/CameraTrap_output
 ```
 
-`--whole-sequences` downloads every frame of each sampled sequence (counts
-then refer to sequences, about 1.5 frames each), which lets the eval score
-detection per sequence and softens the "sequence label on an empty frame"
-noise. `--negatives-per-class` adds images labelled only with camera problems
-(snow on lens, foggy lens, ...) as hard negatives for the false-positive rate.
-
-## Everything in one job (preferred)
-
-```bash
-sbatch scripts/ai4wy/fetch_and_run_idaho.sbatch                 # 20 per class, both arms
-PER_CLASS=100 NEGATIVES=40 WHOLE_SEQ=1 sbatch scripts/ai4wy/fetch_and_run_idaho.sbatch
-```
-
-The job checks outbound HTTPS from the compute node, caches weights if
-needed, fetches the subset into `/project/uwyo-0007/data/idaho-<N>pc`, runs
-wytrap once per species list (`wyoming_all` and `species_idaho.txt` by
-default), evaluates each, and prints a side-by-side summary at the end of
-the `.out` log. If the node has no network the job exits with code 3 and the
-two-step path below applies.
-
-## Two-step path (fetch on login node, run on compute)
-
-```bash
-sbatch scripts/ai4wy/run_idaho.sbatch                 # open-set: wyoming_all
-SPECIES=scripts/ai4wy/species_idaho.txt \
-    OUTPUT_DIR=/project/uwyo-0007/data/idaho-subset/output-idaho \
-    sbatch scripts/ai4wy/run_idaho.sbatch             # closed-set: Idaho classes only
-tail -f logs/wytrap-idaho-<jobid>.out
-```
-
-Each job runs `wytrap detect` then `scripts/eval_image_level.py`. Inference
-outputs: one JSON per image, `all_records.jsonl`, `wytrap.log`. Eval outputs
-under `<OUTPUT_DIR>/eval/`: `metrics.json`, `per_image.csv`,
-`confusion_matrix.csv` and `.png`, `eval.log`.
-
-The Idaho labels are per sequence with no boxes, so the box-matching
-`scripts/eval_pipeline.py` does not apply. The image-level eval reports:
-
-- detection as presence/absence over a det_score sweep, with false-positive
-  rate per negative type (empty, human, vehicle, camera problems) and per
-  location;
-- classification given the image at a fixed det_score floor: top-1/3/5
-  accuracy, accuracy versus coverage over a cls_score floor, per-class
-  precision/recall, confusion matrix, and splits by day/night and by wytrap
-  quality tag. Predictions and labels both pass through
-  `helpers.IDAHO_EVAL_MERGES` (mule deer and white-tailed deer both become
-  "deer", and so on).
-
-The two-arm run above is the first experiment worth reading: the accuracy gap
-between `wyoming_all` (148 prompts, includes species Idaho never sees) and
-`species_idaho.txt` (25 prompts) is the cost of open-set confusion, which
-bears directly on how long the I-80 species list should be. Note that
-`wyoming_all` has no livestock prompts, so Idaho's cattle and horse images can
-only be scored correctly in the closed-set arm.
-
-Re-run eval without re-running inference:
-
-```bash
-python scripts/eval_image_level.py --labels .../labels.json --pred .../output-wytrap \
-    --agg vote --sequence-level --quality all
-```
-
-## Jupyter
-
-`setup_env.sh` registers the venv as a kernel named "wytrap (ai4wy)" in
-`~/.local/share/jupyter/kernels/wytrap`. Pick it in JupyterLab from the Open
-OnDemand portal. Kernel specs are per user, so each person runs once:
-
-```bash
-/project/uwyo-0007/software/.venv-wytrap/bin/python -m ipykernel install --user \
-    --name wytrap --display-name "wytrap (ai4wy)"
-```
-
-## Sharing with the project group
-
-`/project/uwyo-0007` directories are group `uwyo-0007` with setgid, so new
-files inherit the group. `setup_env.sh` sets `umask 002` so they are also
-group-writable. If the venv was built before that line existed, fix it once:
-
-```bash
-chmod -R g+rwX /project/uwyo-0007/software
-git -C /project/uwyo-0007/software/detection-projects config core.sharedRepository group
-```
-
-## Detector choice and the Zenodo problem
-
-PytorchWildlife downloads MegaDetector v6 from Zenodo only, and Zenodo goes
-down for hours at a time (it did during setup). `wytrap detect --detector`
-now also accepts `MDV1000-redwood`, `MDV5a` and `MDV5b`, which come from the
-Hugging Face mirror `agentmorris/megadetector` and load through
-PytorchWildlife's v5 class. `prefetch_weights.sh` tries Zenodo a few times,
-then always caches redwood. Both sbatch scripts default to `DETECTOR=auto`:
-MDv6 yolov9-e when its checkpoint is cached, otherwise MDv1000 redwood. Set
-`DETECTOR=...` explicitly to pin one, and record which detector a run used
-(it is printed at the top of the job log and in `wytrap.log`) since the two
-are not interchangeable when comparing numbers. Redwood is also what AddaxAI
-Connect runs, so it is the more relevant baseline for the I-80 deployment.
+Each task writes `<out>/<camera>/merged/images.csv` (one headline label per
+classifier per image, person and vehicle counts, consensus) and `boxes.csv`.
+Budget about 4 img/s for BioCLIP 2 (detector included), 9 for SpeciesNet and
+17 for the zoo model on one GPU, so roughly 35 GPU-hours per 300k images,
+spread across the array. Tasks resume, so a killed one can be resubmitted.
 
 ## Gotchas
 
-- The setup and download steps need outbound network. Run them on a login node.
-  Jobs run with `HF_HUB_OFFLINE=1` and read weights from the shared cache.
-- Torch wheels from PyPI carry CUDA 13 and need driver 580+. If
-  `torch.cuda.is_available()` is false in a job, check `nvidia-smi` in the job
-  log and, if the driver is older, reinstall torch from the cu128 index:
-  `uv pip install --index-url https://download.pytorch.org/whl/cu128 torch torchvision`.
-- Wall-time: 24 h requests were rejected in the ARCC examples. Use 8 h chunks
-  and `--resume`.
-
-## Shared candidate set and hierarchical scoring
-
-`taxonomy/idaho_vocab.csv` defines the evaluation vocabulary as taxon nodes
-(GBIF backbone names): "deer" is the genus Odocoileus, "lagomorph" the order
-Lagomorpha, and each row lists the regional species that form the candidate
-set. `scripts/build_vocab_lists.py` derives, with one rule for every model,
-the BioCLIP 2 prompt file, SpeciesNet's target-species list, and which classes
-of each AddaxAI zoo model are kept. Masking is a softmax over the kept
-classes only (SpeciesNet via its target logits, zoo models by renormalising).
-
-`scripts/eval_image_level.py --vocab taxonomy/idaho_vocab.csv` resolves each
-prediction to a node by lineage or scientific name instead of string merges,
-and reports, beside top-1, `top1_or_consistent_rollup` (correct node, or a
-roll-up to a taxon containing it), the roll-up rate, and the share of
-predictions outside the vocabulary.
-
-```bash
-sbatch scripts/ai4wy/vocab_compare.sbatch
-```
-
-runs BioCLIP 2 on vocabulary prompts with redwood boxes, then SpeciesNet raw,
-SpeciesNet with roll-up, and each zoo model on those same boxes restricted to
-the same candidate set, re-scores every earlier open-set run with the same
-vocabulary, and prints one table.
-
-## Deployment: unlabelled camera folders (WySoundscape, I-80)
-
-`scripts/ai4wy/deploy_infer.sbatch` is the inference-only counterpart of
-`vocab_compare.sbatch`: MegaDetector once (person and vehicle boxes are kept,
-unclassified), then BioCLIP 2 with the Idaho-estimated prior correction,
-SpeciesNet with roll-up, and Western USA SDZWA on the same boxes, all
-restricted to `taxonomy/wyoming_vocab.csv`, and
-`scripts/merge_predictions.py` joins them into `merged/images.csv` (one
-headline label per model per image, person/vehicle counts, consensus) and
-`merged/boxes.csv` (per box). No labels are read; nothing is scored.
-
-Data lives on MedicineBow and `/project` is not shared, so copy it first
-(Globus for the full 433 GB; rsync one camera folder to test):
-
-```bash
-# medbow -> ai4wy, one camera
-rsync -avP /project/wildimageproc/omartin9/Soundscapes/Camera_data/<CAM>/ \
-    ai4wy-log2.arcc.uwyo.edu:/project/uwyo-0007/data/wysoundscape/images/<CAM>/
-
-# ai4wy: one folder
-IMAGES=/project/uwyo-0007/data/wysoundscape/images/<CAM> sbatch scripts/ai4wy/deploy_infer.sbatch
-
-# ai4wy: every camera folder as a Slurm array (8 at once), then one table
-scripts/ai4wy/deploy_submit.sh /project/uwyo-0007/data/wysoundscape/images
-python scripts/merge_predictions.py --combine /project/uwyo-0007/data/wysoundscape/output
-```
-
-Budget: about 4 img/s for BioCLIP 2 (detector included), 9 for SpeciesNet, 17
-for the zoo model, so roughly 35 GPU-hours per 300k images; the array spreads
-that over gp-1/gp-2. Jobs resume (`wytrap --resume`), so a killed task can
-simply be resubmitted.
-
-`PROMPT_BIAS=self` re-estimates BioCLIP's prior correction on the folder
-itself (leave-location-out over its sub-folders); the default reuses the
-Idaho estimate, which is the right choice for a single camera. Per-image
-JSONs from every arm mirror the image tree below the common root, so Reconyx
-`100RECNX/` folders under different cameras do not collide.
+- Partitions are `gp-1`/`gp-2`; the ARCC docs' `ai4wy-1/2` do not exist.
+- 24 h wall-time requests were rejected; the scripts ask for 2–8 h.
+- Zenodo (MegaDetector v6 weights) is down for hours at a time. The default
+  detector, MDv1000 redwood, comes from Hugging Face and needs no Zenodo.
+- Keep `HF_HOME` and `TORCH_HOME` under `/project` (the scripts do), or the
+  weights land in a home-directory quota.
+- `uv` installs to `~/.local/bin`; `export PATH="$HOME/.local/bin:$PATH"`
+  if the shell cannot find it.

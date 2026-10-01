@@ -191,3 +191,65 @@ class Vocab:
             elif n["genus"] and n["genus"] in listed_genera:
                 keep.add(code)
         return keep
+
+    def species(self) -> list[dict]:
+        """The prompts as wytrap Species dicts (the BioCLIP candidate set)."""
+        seen, out = set(), []
+        for m in self.members:
+            for sci, com in m.prompts:
+                if sci not in seen:
+                    seen.add(sci)
+                    out.append({"scientific": sci, "common": com})
+        return out
+
+
+# ---- `wytrap vocab`: write the per-model candidate lists ---------------------
+
+def write_lists(vocab_path: str | Path, speciesnet_model: str | None = None,
+                zoo: list[str] | None = None, log=print) -> dict:
+    """Write <vocab>.bioclip.txt and, with a SpeciesNet model, <vocab>.speciesnet.txt;
+    report which classes of each AddaxAI zoo model fall inside the vocabulary.
+    The classifiers derive the same sets at load time; the files are for
+    inspection and for tools that want a plain list."""
+    from wytrap.taxonomy import speciesnet_lineage
+
+    vpath = Path(vocab_path)
+    v = Vocab.load(vpath)
+    lines = v.bioclip_species_lines()
+    out = vpath.with_suffix(".bioclip.txt")
+    out.write_text("# generated from %s: one prompt per vocabulary member species\n" % vpath.name
+                   + "\n".join(lines) + "\n")
+    log(f"[vocab] {len(v.labels)} labels, {len(v.members)} member taxa, "
+        f"{len(lines)} BioCLIP prompts -> {out}")
+    report = {"labels": v.labels, "bioclip_prompts": len(lines)}
+
+    if speciesnet_model:
+        from speciesnet.utils import ModelInfo
+        with open(ModelInfo(speciesnet_model).classifier_labels, encoding="utf-8") as f:
+            all_labels = [l.strip() for l in f if l.strip()]
+        cand = v.candidate_classes({lab: speciesnet_lineage(lab) for lab in all_labels})
+        keep = [lab for lab in all_labels if lab in cand]
+        out = vpath.with_suffix(".speciesnet.txt")
+        out.write_text("\n".join(keep) + "\n")
+        by_label: dict[str, int] = {}
+        for lab in keep:
+            n, _ = v.resolve_lineage(speciesnet_lineage(lab))
+            by_label[n] = by_label.get(n, 0) + 1
+        log(f"[vocab] SpeciesNet targets: {len(keep)} of {len(all_labels)} labels -> {out}")
+        log(f"        per node: {by_label}")
+        missing = [l for l in v.labels if l not in by_label]
+        if missing:
+            log(f"        nodes with no SpeciesNet label: {missing}")
+        report["speciesnet"] = {"kept": len(keep), "per_node": by_label, "missing": missing}
+
+    for repo in zoo or []:
+        from wytrap.classifiers.addax import load_label_map, load_model_dir
+        _, lins = load_label_map(load_model_dir(repo))
+        cand = v.candidate_classes(lins)
+        allowed = sorted(c for c in lins if c in cand)
+        dropped = sorted(c for c in lins if c not in cand)
+        log(f"[vocab] {repo}: {len(allowed)} classes inside vocabulary, {len(dropped)} masked")
+        log(f"        kept: {allowed}")
+        log(f"        masked: {dropped}")
+        report[repo] = {"kept": allowed, "masked": dropped}
+    return report

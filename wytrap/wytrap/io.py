@@ -26,6 +26,8 @@ class DetectionRecord:
                                                  # (class/order/family/genus/species)
     prompt_logp: dict = field(default_factory=dict)  # scale -> log-prob of every prompt
                                                      # (order in <output>/prompts.json)
+    source: str = ""               # how the label was reached, e.g. SpeciesNet's
+                                   # "classifier+rollup_to_genus"; "" for plain top-1
 
 
 @dataclass
@@ -64,6 +66,7 @@ def load_record(path: str | Path) -> ImageRecord:
         det.setdefault("cross_scale_agree", True)
         det.setdefault("lineage", {})
         det.setdefault("prompt_logp", {})
+        det.setdefault("source", "")
         # topk migrated from [[name, score], ...] to [{...}, ...].
         topk = det.get("topk", [])
         if topk and isinstance(topk[0], (list, tuple)):

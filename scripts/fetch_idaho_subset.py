@@ -18,7 +18,7 @@ What it writes under --out:
 Resumable: already-downloaded files are skipped, so re-running with a
 larger --per-class only fetches the new ones.
 
-Options that matter for evaluation (see scripts/eval_image_level.py):
+Options that matter for evaluation (see `wytrap eval`):
     --whole-sequences      download every frame of each sampled sequence
                            (per-class counts then refer to sequences), so
                            detection can be scored per sequence and the

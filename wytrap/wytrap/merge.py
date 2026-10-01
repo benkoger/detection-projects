@@ -14,7 +14,7 @@ Writes:
     <out>/summary.json label counts per arm, agreement rates, empties
 
 Usage:
-    python scripts/merge_predictions.py --out /path/merged \\
+    wytrap merge --out /path/merged \\
         --arm bioclip=/path/output-bioclip-...-calib \\
         --arm speciesnet=/path/output-speciesnet-ens-... \\
         --arm wusa=/path/output-addax-wusa-...
@@ -29,9 +29,7 @@ import sys
 from collections import Counter, defaultdict
 from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(REPO_ROOT / "wytrap"))
-from wytrap.io import common_root  # noqa: E402
+from wytrap.io import common_root
 
 
 def load_arm(run_dir: Path) -> dict[str, dict]:
@@ -86,9 +84,7 @@ def combine(out_root: Path) -> int:
     return 0
 
 
-def main(argv: list[str] | None = None) -> int:
-    ap = argparse.ArgumentParser(description=__doc__,
-                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+def add_arguments(ap: argparse.ArgumentParser) -> None:
     ap.add_argument("--arm", action="append", default=[], metavar="NAME=DIR",
                     help="a classifier run folder; the first one supplies the boxes")
     ap.add_argument("--out", help="output folder (required with --arm)")
@@ -99,7 +95,16 @@ def main(argv: list[str] | None = None) -> int:
                     help="instead of merging arms: concatenate every <OUT_ROOT>/*/merged/"
                          "images.csv and boxes.csv (one array task per camera) into "
                          "<OUT_ROOT>/all_images.csv and all_boxes.csv")
-    args = ap.parse_args(argv)
+
+
+def main(argv: list[str] | None = None) -> int:
+    ap = argparse.ArgumentParser(description=__doc__,
+                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    add_arguments(ap)
+    return run(ap, ap.parse_args(argv))
+
+
+def run(ap: argparse.ArgumentParser, args: argparse.Namespace) -> int:
     if args.combine:
         return combine(Path(args.combine))
     if not args.arm or not args.out:

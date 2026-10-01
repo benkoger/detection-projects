@@ -13,14 +13,14 @@ correction. Ground-truth labels are never read.
 Input: a wytrap run whose records carry `prompt_logp` (wytrap >= this change)
 and `prompts.json`. Output: a new folder of wytrap-format records with
 recalibrated labels and a re-picked winning scale, scored by
-scripts/eval_image_level.py as usual, plus `prompt_bias.json` estimated from
+`wytrap eval` as usual, plus `prompt_bias.json` estimated from
 ALL locations for use with `wytrap detect --prompt-bias` at deployment.
 
 Optional regional prior: --target-prior prior.json ({scientific: weight})
 adds log(weight) back after removing the baseline (default: uniform).
 
 Usage:
-    python scripts/calibrate_bioclip.py --pred /path/output-bioclip-... \\
+    wytrap calibrate --pred /path/output-bioclip-... \\
         --output /path/output-bioclip-...-calib [--min-det 0.2] [--quality ok|all]
 """
 
@@ -35,9 +35,7 @@ from pathlib import Path
 
 import numpy as np
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(REPO_ROOT / "wytrap"))
-from wytrap.io import (DetectionRecord, ImageRecord, append_jsonl, common_root,  # noqa: E402
+from wytrap.io import (DetectionRecord, ImageRecord, append_jsonl, common_root,
                        output_path_for, save_record)
 
 SCALES = ("tight", "padded", "full")
@@ -48,9 +46,7 @@ def location_of(image_path: str) -> str:
     return m.group(1) if m else Path(image_path).parent.name
 
 
-def main(argv: list[str] | None = None) -> int:
-    ap = argparse.ArgumentParser(description=__doc__,
-                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+def add_arguments(ap: argparse.ArgumentParser) -> None:
     ap.add_argument("--pred", required=True, help="wytrap output folder with prompt_logp")
     ap.add_argument("--output", required=True)
     ap.add_argument("--min-det", type=float, default=0.2,
@@ -60,8 +56,16 @@ def main(argv: list[str] | None = None) -> int:
                          "crops as a deployed camera would produce them)")
     ap.add_argument("--target-prior", default=None)
     ap.add_argument("--topk", type=int, default=5)
-    args = ap.parse_args(argv)
 
+
+def main(argv: list[str] | None = None) -> int:
+    ap = argparse.ArgumentParser(description=__doc__,
+                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    add_arguments(ap)
+    return run(ap.parse_args(argv))
+
+
+def run(args: argparse.Namespace) -> int:
     pred = Path(args.pred)
     pj = json.loads((pred / "prompts.json").read_text())
     prompts = pj["prompts"]

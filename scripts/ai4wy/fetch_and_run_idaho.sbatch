@@ -87,7 +87,7 @@ echo "[job] outbound HTTPS ok"
 if python - "$DETECTOR" <<'PY'
 import os, sys
 from huggingface_hub import try_to_load_from_cache
-from wytrap.classifier import bioclip_cache_status
+from wytrap.classifiers.bioclip import bioclip_cache_status
 from wytrap.detector import Detector
 det = sys.argv[1]
 if det in Detector.HF_WEIGHTS:
@@ -130,10 +130,10 @@ for SPECIES in $ARMS; do
     wytrap detect \
         --input "$DATA_DIR/images" --output "$OUT" \
         --species "$SPECIES" --det-threshold "${DET_THRESHOLD:-0.50}" $TILE_FLAG $IMGSZ_FLAG \
-        --detector "$DETECTOR" --device cuda --recursive --resume \
+        --detector "$DETECTOR" --device cuda --keep-labels animal \
         --jsonl "$OUT/all_records.jsonl" ${EXTRA_ARGS:-}
     echo "[job] inference ($ARM_NAME) took $(($(date +%s) - T0))s"
-    python scripts/eval_image_level.py \
+    wytrap eval \
         --labels "$DATA_DIR/labels.json" --pred "$OUT" \
         --det-threshold "${DET_THRESHOLD_CLS:-0.50}" \
         --det-sweep "${DET_SWEEP:-0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9}" \

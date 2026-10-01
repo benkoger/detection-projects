@@ -60,9 +60,9 @@ while IFS='|' read -r tag flags; do
     T0=$(date +%s)
     wytrap detect --input "$DATA_DIR/images" --output "$OUT" \
         --species "$SPECIES" --detector "$DETECTOR" --device cuda \
-        --recursive --resume --jsonl "$OUT/all_records.jsonl" $flags
+        --keep-labels animal --jsonl "$OUT/all_records.jsonl" $flags
     echo "[sweep] $tag inference took $(($(date +%s) - T0))s"
-    python scripts/eval_image_level.py --labels "$DATA_DIR/labels.json" --pred "$OUT" \
+    wytrap eval --labels "$DATA_DIR/labels.json" --pred "$OUT" \
         --det-threshold "${DET_THRESHOLD_CLS:-0.50}" \
         --det-sweep 0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9
     TAGS+=("$tag")

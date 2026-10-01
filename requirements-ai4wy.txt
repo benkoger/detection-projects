@@ -38,5 +38,5 @@ tqdm
 # scripts/fetch_idaho_subset.py
 requests
 
-# scripts/run_speciesnet_arms.py (Google SpeciesNet; pulls yolov5, kagglehub, onnx2torch)
+# wytrap --classifier speciesnet (Google SpeciesNet; pulls yolov5, kagglehub, onnx2torch)
 speciesnet>=5.0
