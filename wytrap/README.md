@@ -54,6 +54,20 @@ Weights download on first use into the Hugging Face cache. Set `HF_HOME`
 
 ## 3. Use it
 
+### Arrange a raw camera dump
+
+```bash
+wytrap ingest --source /data/CameraTrap_raw --out /data/CameraTrap_test
+```
+
+makes `images/<camera>/` (one flat folder per camera; Reconyx sub-folder
+names fold into the file name), `labels.json` with empty labels in the same
+schema the evaluator reads, and `manifest.json` with per-camera counts, EXIF
+date ranges and sequences (frames under a minute apart). Files are moved by
+default; `--copy` or `--link` keep the source. The Idaho subsets from
+`scripts/fetch_idaho_subset.py` have the same layout, so every later command
+works the same on both.
+
 ### Detect and classify a folder
 
 ```bash
@@ -166,6 +180,7 @@ still get a prompt, just a poor one.
 ```
 wytrap/
   cli.py             argparse front end; one function per subcommand
+  ingest.py          raw dump -> images/ + labels.json + manifest.json
   run.py             the per-image loop shared by detect and classify
   detector.py        MegaDetector wrapper (PytorchWildlife); HF-hosted v5/v1000, Zenodo v6
   classifiers/

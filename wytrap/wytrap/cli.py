@@ -1,5 +1,6 @@
 """The `wytrap` command.
 
+    wytrap ingest     arrange a raw camera dump into images/ + labels.json + manifest.json
     wytrap detect     images -> MegaDetector -> a classifier -> records
     wytrap classify   re-label an earlier run's boxes with another classifier
     wytrap calibrate  BioCLIP prior correction from a run's prompt scores
@@ -195,7 +196,13 @@ def build_parser() -> argparse.ArgumentParser:
     _add_common_args(p)
     p.set_defaults(func=_cmd_classify)
 
-    from wytrap import calibrate, evaluate, merge
+    from wytrap import calibrate, evaluate, ingest, merge
+    p = sub.add_parser("ingest", help="arrange a raw camera dump into images/ + labels.json + manifest.json",
+                       description=ingest.__doc__,
+                       formatter_class=argparse.RawDescriptionHelpFormatter)
+    ingest.add_arguments(p)
+    p.set_defaults(func=ingest.run)
+
     p = sub.add_parser("calibrate", help="BioCLIP prior correction (label-free)",
                        description=calibrate.__doc__,
                        formatter_class=argparse.RawDescriptionHelpFormatter)

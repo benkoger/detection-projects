@@ -82,22 +82,31 @@ for false positives on these cameras.
 
 The WySoundscape images live on MedicineBow and `/project` is not shared,
 so they were copied to `/project/uwyo-0007/data/CameraTrap_test` (Globus
-for hundreds of GB; rsync for a single camera). Then:
+for hundreds of GB; rsync for a single camera). First give the folder the
+same layout as the Idaho sets — `images/<camera>/`, `labels.json` (empty
+labels, to be filled by review), `manifest.json` (per-camera counts, date
+ranges, sequences from EXIF). Files are moved, not copied, so it is instant:
 
 ```bash
-# one camera
-IMAGES=/project/uwyo-0007/data/CameraTrap_test/<CAM> sbatch scripts/ai4wy/deploy_infer.sbatch
-
-# every camera folder as an array (8 at once), then one table for all of them
-scripts/ai4wy/deploy_submit.sh /project/uwyo-0007/data/CameraTrap_test /project/uwyo-0007/data/CameraTrap_output
-wytrap merge --combine /project/uwyo-0007/data/CameraTrap_output
+wytrap ingest --source /project/uwyo-0007/data/CameraTrap_test \
+              --out    /project/uwyo-0007/data/CameraTrap_test     # in place
 ```
 
-Each task writes `<out>/<camera>/merged/images.csv` (one headline label per
-classifier per image, person and vehicle counts, consensus) and `boxes.csv`.
-Budget about 4 img/s for BioCLIP 2 (detector included), 9 for SpeciesNet and
-17 for the zoo model on one GPU, so roughly 35 GPU-hours per 300k images,
-spread across the array. Tasks resume, so a killed one can be resubmitted.
+Then one camera as a test, or every camera as an array (8 at once):
+
+```bash
+IMAGES=/project/uwyo-0007/data/CameraTrap_test/images/<CAM> sbatch scripts/ai4wy/deploy_infer.sbatch
+
+scripts/ai4wy/deploy_submit.sh /project/uwyo-0007/data/CameraTrap_test
+wytrap merge --combine /project/uwyo-0007/data/CameraTrap_test/output      # when the array is done
+```
+
+Each task writes `output/<camera>/merged/images.csv` (one headline label per
+classifier per image, person and vehicle counts, consensus) and `boxes.csv`;
+`--combine` concatenates them into `output/all_images.csv`. Budget about
+4 img/s for BioCLIP 2 (detector included), 9 for SpeciesNet and 17 for the
+zoo model on one GPU, so roughly 35 GPU-hours per 300k images, spread
+across the array. Tasks resume, so a killed one can be resubmitted.
 
 ## Gotchas
 
