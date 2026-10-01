@@ -17,7 +17,9 @@
 #                 (or OUT_ROOT_BASE/<basename> when set by deploy_submit.sh)
 #   VOCAB         default taxonomy/wyoming_vocab.csv
 #   DETECTOR      default MDV1000-redwood (what AddaxAI Connect runs)
-#   DET_THRESHOLD default 0.20 (record floor; `wytrap merge --min-det` raises it)
+#   DET_THRESHOLD default 0.20 (record floor; every box above it is kept on disk)
+#   MIN_DET       detector floor for the merged tables (default 0.5; raise or lower
+#                 later with `wytrap merge --min-det` without re-running anything)
 #   BOXES_FROM    all_records.jsonl of an earlier run on the same images: reuse
 #                 its MegaDetector boxes and only re-run the classifiers (the
 #                 cheap way to try a revised vocabulary)
@@ -107,5 +109,5 @@ for M in $ZOO; do
 done
 
 echo "===== merge ====="
-wytrap merge --out "$OUT_ROOT/merged" "${ARMS[@]}"
+wytrap merge --out "$OUT_ROOT/merged" --min-det "${MIN_DET:-0.5}" "${ARMS[@]}"
 echo "[deploy_infer] done: $OUT_ROOT/merged/images.csv"

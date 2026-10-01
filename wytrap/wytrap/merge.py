@@ -88,9 +88,11 @@ def add_arguments(ap: argparse.ArgumentParser) -> None:
     ap.add_argument("--arm", action="append", default=[], metavar="NAME=DIR",
                     help="a classifier run folder; the first one supplies the boxes")
     ap.add_argument("--out", help="output folder (required with --arm)")
-    ap.add_argument("--min-det", type=float, default=0.0,
-                    help="drop boxes below this det_score from the tables (default keep all; "
-                         "0.30 was the best-value floor on Idaho)")
+    ap.add_argument("--min-det", type=float, default=0.5,
+                    help="drop boxes below this det_score from the tables (default 0.5). "
+                         "Runs record boxes down to 0.20 so the floor can be chosen here "
+                         "without re-running; 0.30 kept the most true animals on Idaho, "
+                         "0.50 the fewest false ones")
     ap.add_argument("--combine", metavar="OUT_ROOT",
                     help="instead of merging arms: concatenate every <OUT_ROOT>/*/merged/"
                          "images.csv and boxes.csv (one array task per camera) into "

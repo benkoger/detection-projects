@@ -18,6 +18,7 @@
 #   DETECTOR   default MDV1000-redwood (to find the deploy run's records)
 #   ADMIN1     geofence state (default WY)
 #   MIN_SCORE  census counts headline boxes at or above this cls_score (default 0.5)
+#   MIN_DET    ... and at or above this detector score (default 0.5)
 #SBATCH --job-name=wytrap-census
 #SBATCH --account=uwyo-0007
 #SBATCH --partition=gp-1,gp-2
@@ -71,5 +72,5 @@ done
 # ---- the census: per-camera label counts, marked against the vocabulary
 echo "===== census ====="
 wytrap census --out "$OUT/census${CAMERAS:+-$CAMERAS}" --vocab "$VOCAB" \
-    --min-score "${MIN_SCORE:-0.5}" "${RUNS[@]}"
+    --min-score "${MIN_SCORE:-0.5}" --min-det "${MIN_DET:-0.5}" "${RUNS[@]}"
 echo "[census] done"

@@ -29,9 +29,13 @@ from pathlib import Path
 from wytrap.vocab import Vocab
 
 
-def headline(dets: list[dict]) -> dict | None:
+NOT_A_SPECIES = {"", "skipped", "blank", "no cv result"}   # the classifier's own "nothing here"
+
+
+def headline(dets: list[dict], min_det: float = 0.0) -> dict | None:
     ok = [d for d in dets if d.get("det_label", "animal") == "animal"
-          and d.get("quality", "ok") == "ok" and d.get("label") not in ("", "skipped")]
+          and d.get("quality", "ok") == "ok" and d["det_score"] >= min_det
+          and d.get("label") not in NOT_A_SPECIES]
     return max(ok, key=lambda d: d["det_score"]) if ok else None
 
 
@@ -42,6 +46,9 @@ def add_arguments(ap: argparse.ArgumentParser) -> None:
     ap.add_argument("--vocab", default=None, help="vocabulary CSV to audit against")
     ap.add_argument("--min-score", type=float, default=0.5,
                     help="headline box cls_score floor for counting (default 0.5)")
+    ap.add_argument("--min-det", type=float, default=0.5,
+                    help="headline box det_score floor (default 0.5; boxes are recorded down "
+                         "to 0.20, where MegaDetector's false positives live)")
     ap.add_argument("--top", type=int, default=25, help="labels printed per camera")
 
 
@@ -68,7 +75,7 @@ def run(args: argparse.Namespace) -> int:
                     continue
                 r = json.loads(line)
                 n_img += 1
-                h = headline(r.get("detections") or [])
+                h = headline(r.get("detections") or [], args.min_det)
                 if not h:
                     continue
                 n_animal += 1
@@ -80,8 +87,8 @@ def run(args: argparse.Namespace) -> int:
                 if h.get("lineage"):
                     lineage_of.setdefault(h["label"], h["lineage"])
         counts[name] = c
-        print(f"[census] {name}: {n_img} images, {n_animal} with an animal, "
-              f"{sum(c.values())} counted at cls_score >= {args.min_score}, "
+        print(f"[census] {name}: {n_img} images, {n_animal} with a named animal box at "
+              f"det >= {args.min_det}, {sum(c.values())} counted at cls_score >= {args.min_score}, "
               f"{low_conf[name]} below it")
 
     # Family level: species calls between look-alikes are the noisiest part of
@@ -137,7 +144,7 @@ def run(args: argparse.Namespace) -> int:
         for lab in labels:
             row = [counts[n][lab] for n in counts]
             w.writerow([lab, sci_of.get(lab, ""), status[lab], *row, sum(row)])
-    summary = {"min_score": args.min_score, "vocab": args.vocab,
+    summary = {"min_score": args.min_score, "min_det": args.min_det, "vocab": args.vocab,
                "counts": {n: dict(c.most_common()) for n, c in counts.items()},
                "counts_by_family": {n: dict(c.most_common()) for n, c in fam_counts.items()},
                "below_min_score": dict(low_conf),
