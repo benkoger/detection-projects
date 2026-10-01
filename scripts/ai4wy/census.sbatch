@@ -73,4 +73,9 @@ done
 echo "===== census ====="
 wytrap census --out "$OUT/census${CAMERAS:+-$CAMERAS}" --vocab "$VOCAB" \
     --min-score "${MIN_SCORE:-0.5}" --min-det "${MIN_DET:-0.5}" "${RUNS[@]}"
+
+# ---- the combined tables and the agreement summary over every camera
+# that has a merged/ folder (all of them, if deploy_cameras.sh ran this)
+echo "===== combined tables ====="
+wytrap merge --combine "$OUT"
 echo "[census] done"

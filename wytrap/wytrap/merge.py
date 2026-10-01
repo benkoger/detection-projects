@@ -78,10 +78,48 @@ def combine(out_root: Path) -> int:
             w.writerows(rows)
         print(f"[merge] {len(parts)} cameras, {len(rows)} rows -> {target}")
         if fname == "images.csv":
-            cons = Counter(r["consensus"] or "(no consensus / no animal)" for r in rows)
-            for lab, n in cons.most_common(15):
-                print(f"         {n:7d}  {lab}")
+            summarise_images(rows, out_root)
     return 0
+
+
+def summarise_images(rows: list[dict], out_root: Path) -> None:
+    """The unlabelled 'evaluation': per camera, how many images had an
+    animal, a person or a vehicle; how often the classifiers agreed; the
+    consensus species table. Written to <out_root>/summary.json and printed."""
+    arms = sorted({k[:-6] for k in rows[0] if k.endswith("_label")}) if rows else []
+    per_cam: dict[str, dict] = {}
+    for r in rows:
+        c = per_cam.setdefault(r["camera"], Counter())
+        c["images"] += 1
+        animal = int(r["n_animal"]) > 0
+        c["animal"] += animal
+        c["person"] += int(r["n_person"]) > 0
+        c["vehicle"] += int(r["n_vehicle"]) > 0
+        c["empty"] += int(r["n_boxes"]) == 0
+        if animal:
+            n = int(r["n_agree"] or 0)
+            c["all_agree"] += n == len(arms)
+            c["majority"] += bool(r["consensus"])
+            c["no_consensus"] += not r["consensus"]
+    print(f"\n[merge] per camera (classifiers: {', '.join(arms)}):")
+    print(f"{'camera':<16}{'images':>8}{'animal':>8}{'person':>8}{'vehicle':>8}{'empty':>8}"
+          f"{'all agree':>11}{'majority':>10}{'none':>7}")
+    tot = Counter()
+    for cam, c in sorted(per_cam.items()):
+        tot.update(c)
+        a = c["animal"] or 1
+        print(f"{cam:<16}{c['images']:>8}{c['animal']:>8}{c['person']:>8}{c['vehicle']:>8}{c['empty']:>8}"
+              f"{c['all_agree'] / a:>10.0%} {c['majority'] / a:>9.0%} {c['no_consensus'] / a:>6.0%}")
+    a = tot["animal"] or 1
+    print(f"{'all':<16}{tot['images']:>8}{tot['animal']:>8}{tot['person']:>8}{tot['vehicle']:>8}{tot['empty']:>8}"
+          f"{tot['all_agree'] / a:>10.0%} {tot['majority'] / a:>9.0%} {tot['no_consensus'] / a:>6.0%}")
+    cons = Counter(r["consensus"] or "(no consensus / no animal)" for r in rows)
+    print("\n[merge] consensus species (majority of classifiers agree):")
+    for lab, n in cons.most_common(20):
+        print(f"         {n:7d}  {lab}")
+    (out_root / "summary.json").write_text(json.dumps({
+        "classifiers": arms, "per_camera": {k: dict(v) for k, v in per_cam.items()},
+        "total": dict(tot), "consensus_counts": dict(cons.most_common())}, indent=2))
 
 
 def add_arguments(ap: argparse.ArgumentParser) -> None:
