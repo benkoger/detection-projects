@@ -146,19 +146,29 @@ class Detector:
         # block. Ultralytics' own monkeypatch tries to do this but isn't
         # taking effect on torch 2.11. We trust the cached MegaDetector
         # checkpoint, so this is safe in our context.
+        import os
         import torch
 
         original = torch.load
 
         def patched(*args, **kwargs):
-            kwargs.setdefault("weights_only", False)
+            kwargs["weights_only"] = False
             return original(*args, **kwargs)
 
+        # torch honours two environment variables over the argument; a
+        # library imported earlier (the classifier now loads before the
+        # detector) can leave the forcing one set.
+        saved = {k: os.environ.pop(k, None) for k in ("TORCH_FORCE_WEIGHTS_ONLY_LOAD",)}
+        os.environ["TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD"] = "1"
         torch.load = patched
         try:
             yield
         finally:
             torch.load = original
+            os.environ.pop("TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD", None)
+            for k, v in saved.items():
+                if v is not None:
+                    os.environ[k] = v
 
     @staticmethod
     def _resolve_device(device: str) -> str:
