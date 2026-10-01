@@ -6,8 +6,10 @@ run a classifier unrestricted, census it, revise the vocabulary.
 One image counts once, by its headline box (highest det_score among
 quality-ok animal boxes) when that box's cls_score is at least --min-score.
 
-Writes <out>/census.csv (camera x label counts) and <out>/census.json, and
-prints per-camera top labels with an "outside vocabulary" mark.
+Writes <out>/census.csv (camera x label counts), census_by_family.csv (the
+same rolled up to family, the stable view when species calls between
+look-alikes are shaky) and census.json; prints per-camera top labels with
+an "outside vocabulary" mark, then the family table.
 
 Usage:
     wytrap census --out /data/output/census \\
@@ -82,6 +84,24 @@ def run(args: argparse.Namespace) -> int:
               f"{sum(c.values())} counted at cls_score >= {args.min_score}, "
               f"{low_conf[name]} below it")
 
+    # Family level: species calls between look-alikes are the noisiest part of
+    # any classifier, and roll-ups land at genus or family anyway, so this is
+    # the stable view of what is present.
+    def family_of(lab: str) -> str:
+        lin = lineage_of.get(lab) or {}
+        return (lin.get("family") or lin.get("order") or lin.get("class") or "").lower() \
+            or f"({lab})"
+    fam_counts = {n: Counter() for n in counts}
+    for n, c in counts.items():
+        for lab, k in c.items():
+            fam_counts[n][family_of(lab)] += k
+    families = sorted({f for c in fam_counts.values() for f in c},
+                      key=lambda f: -sum(c[f] for c in fam_counts.values()))
+    fam_members = defaultdict(set)
+    for c in counts.values():
+        for lab in c:
+            fam_members[family_of(lab)].add(lab)
+
     labels = sorted({l for c in counts.values() for l in c}, key=lambda l: -sum(c[l] for c in counts.values()))
     status = {}
     for lab in labels:
@@ -97,8 +117,20 @@ def run(args: argparse.Namespace) -> int:
             mark = f"   <- {status[lab]}" if status.get(lab, "").startswith("OUTSIDE") else ""
             print(f"    {n:6d}  {lab:<32} {sci_of.get(lab, ''):<30}{mark}")
 
+    for name, c in fam_counts.items():
+        print(f"\n[census] {name} by family")
+        for fam, n in c.most_common(args.top):
+            members = ", ".join(sorted(fam_members[fam], key=lambda l: -counts[name][l])[:4])
+            print(f"    {n:6d}  {fam:<20} {members}")
+
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
+    with open(out / "census_by_family.csv", "w", newline="") as f:
+        w = csv.writer(f)
+        w.writerow(["family", "labels", *counts.keys(), "total"])
+        for fam in families:
+            row = [fam_counts[n][fam] for n in counts]
+            w.writerow([fam, "; ".join(sorted(fam_members[fam])), *row, sum(row)])
     with open(out / "census.csv", "w", newline="") as f:
         w = csv.writer(f)
         w.writerow(["label", "scientific", "vocab_node", *counts.keys(), "total"])
@@ -107,6 +139,7 @@ def run(args: argparse.Namespace) -> int:
             w.writerow([lab, sci_of.get(lab, ""), status[lab], *row, sum(row)])
     summary = {"min_score": args.min_score, "vocab": args.vocab,
                "counts": {n: dict(c.most_common()) for n, c in counts.items()},
+               "counts_by_family": {n: dict(c.most_common()) for n, c in fam_counts.items()},
                "below_min_score": dict(low_conf),
                "outside_vocabulary": [l for l in labels if status[l].startswith("OUTSIDE")]}
     if vocab is not None:
@@ -115,5 +148,5 @@ def run(args: argparse.Namespace) -> int:
         print(f"\n[census] outside the vocabulary: {summary['outside_vocabulary'] or 'none'}")
         print(f"[census] vocabulary nodes never seen: {summary['vocab_nodes_never_seen'] or 'none'}")
     (out / "census.json").write_text(json.dumps(summary, indent=2))
-    print(f"[census] wrote {out}/census.csv and census.json")
+    print(f"[census] wrote {out}/census.csv, census_by_family.csv and census.json")
     return 0
