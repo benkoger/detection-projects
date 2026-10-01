@@ -186,6 +186,24 @@ squirrels, and Western USA keeps "chipmunk" because it is the only squirrel
 it has. `wytrap vocab taxonomy/wyoming_vocab.csv --speciesnet-model hf:... --zoo ...`
 prints exactly what each model keeps.
 
+`taxonomy/wyoming_vocab.csv`, the default everywhere, is built from GBIF
+occurrence records rather than by hand:
+
+```bash
+wytrap gbif --out taxonomy/wyoming_vocab.csv
+```
+
+asks GBIF which mammals and birds have been recorded in Wyoming since 2000
+(inside the state's bounding box, or labelled Wyoming for sensitive species
+whose coordinates are withheld, such as black-footed ferret), keeps the
+camera-detectable ones by a fixed rule on the lineage (no bats, shrews, or
+small rodents; only the bird families a trap on the ground sees), merges
+GBIF's taxonomic splits (elk, moose, marten, the *Neogale* weasels), and
+adds domestic animals. Mammals get one node per species; bird families
+collapse to one node each (owl, hawk or eagle, waterfowl, corvid...) except
+the game birds. `--bbox` and `--state` make a vocabulary for any region;
+the `.records.json` beside the CSV holds the record counts behind each row.
+
 To change what the pipeline looks for, edit the CSV. Names are GBIF
 backbone canonical names; a species BioCLIP has never seen the name of will
 still get a prompt, just a poor one.
@@ -210,6 +228,7 @@ wytrap/
   evaluate.py        image-level evaluation
   merge.py           side-by-side tables
   census.py          per-camera label counts audited against a vocabulary
+  gbif.py            vocabulary from GBIF occurrence records in a region
   species_lists.py   built-in BioCLIP species lists (wyoming_all, ...)
 ```
 

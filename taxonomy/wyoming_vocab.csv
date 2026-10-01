@@ -1,42 +1,85 @@
-# Deployment vocabulary for southern Wyoming camera traps (I-80 corridor,
-# WySoundscape sites), as taxon nodes — same format as idaho_vocab.csv.
-# One row per member taxon; several rows may share a label. Ranks use GBIF
-# backbone canonical names; the node's rank is its deepest filled rank.
-# `prompts` are the species-level BioCLIP prompts ("Binomial|common;...") and
-# double as the closed candidate set for every model.
-#
-# Started from idaho_vocab.csv (the evaluated set) plus the species a
-# roadside camera in Wyoming sees that Idaho's public set lacks: badger,
-# raccoon, porcupine, weasel, domestic dog, horse, domestic sheep, bison,
-# corvids. Edit freely; scripts/build_vocab_lists.py regenerates every list.
+# Wyoming vocabulary from GBIF occurrences (bbox -111.06,41.0,-104.05,45.0, since 2000,
+# >= 3 records), one node per species; generated 2026-10-01 by
+# `wytrap gbif`. Camera-detectable rule and domestic additions: wytrap/gbif.py.
+# Edit freely; the GBIF record count per species is in the .records.json beside this file.
 label,class,order,family,genus,species,prompts
-deer,Mammalia,Artiodactyla,Cervidae,Odocoileus,,Odocoileus hemionus|mule deer;Odocoileus virginianus|white-tailed deer
-elk,Mammalia,Artiodactyla,Cervidae,Cervus,canadensis,Cervus canadensis|elk
-moose,Mammalia,Artiodactyla,Cervidae,Alces,alces,Alces alces|moose
+hawk or eagle,Aves,Accipitriformes,Accipitridae,,,Buteo jamaicensis|red-tailed hawk;Haliaeetus leucocephalus|bald eagle;Circus cyaneus|hen harrier;Buteo swainsoni|swainson's hawk;Aquila chrysaetos|golden eagle;Buteo lagopus|rough-legged hawk;Accipiter striatus|sharp-shinned hawk;Buteo regalis|ferruginous hawk;Buteo platypterus|broad-winged hawk
+hawk or eagle,Aves,Accipitriformes,Pandionidae,Pandion,,Pandion haliaetus|osprey
+vulture,Aves,Accipitriformes,Cathartidae,Cathartes,,Cathartes aura|turkey vulture
+waterfowl,Aves,Anseriformes,Anatidae,,,Branta canadensis|canada goose (canadensis group);Anas platyrhynchos|mallard;Mergus merganser|common merganser;Mareca strepera|gadwall;Mareca americana|american wigeon;Aythya affinis|lesser scaup;Anas crecca|green-winged teal;Bucephala islandica|barrow's goldeneye;Spatula clypeata|northern shoveler;Spatula cyanoptera|cinnamon teal;Aythya collaris|ring-necked duck;Aythya americana|redhead;Bucephala albeola|bufflehead;Spatula discors|blue-winged teal;Oxyura jamaicensis|ruddy duck;Bucephala clangula|common goldeneye;Anas acuta|northern pintail;Aythya valisineria|canvasback;Aix sponsa|wood duck;Histrionicus histrionicus|harlequin duck;Lophodytes cucullatus|hooded merganser;Branta hutchinsii|cackling goose;Mergus serrator|red-breasted merganser;Cygnus columbianus|tundra swan;Aythya marila|greater scaup;Melanitta deglandi|white-winged scoter;Anser rossii|ross's goose;Melanitta perspicillata|surf scoter
+dove,Aves,Columbiformes,Columbidae,,,Streptopelia decaocto|eurasian collared-dove;Zenaida macroura|mourning dove;Columba livia|rock pigeon
+falcon,Aves,Falconiformes,Falconidae,Falco,,Falco sparverius|american kestrel;Falco mexicanus|prairie falcon;Falco peregrinus|peregrine falcon;Falco columbarius|merlin;Falco atricapillus|falco atricapillus
+chukar,Aves,Galliformes,Phasianidae,Alectoris,chukar,Alectoris chukar|chukar
+ruffed grouse,Aves,Galliformes,Phasianidae,Bonasa,umbellus,Bonasa umbellus|ruffed grouse
+greater sage-grouse,Aves,Galliformes,Phasianidae,Centrocercus,urophasianus,Centrocercus urophasianus|greater sage-grouse
+dusky grouse,Aves,Galliformes,Phasianidae,Dendragapus,obscurus,Dendragapus obscurus|dusky grouse
+wild turkey,Aves,Galliformes,Phasianidae,Meleagris,gallopavo,Meleagris gallopavo|wild turkey
+gray partridge,Aves,Galliformes,Phasianidae,Perdix,perdix,Perdix perdix|gray partridge
+ring-necked pheasant,Aves,Galliformes,Phasianidae,Phasianus,colchicus,Phasianus colchicus|ring-necked pheasant
+sharp-tailed grouse,Aves,Galliformes,Phasianidae,Tympanuchus,phasianellus,Tympanuchus phasianellus|sharp-tailed grouse
+crane,Aves,Gruiformes,Gruidae,Grus,,Grus canadensis|sandhill crane
+corvid,Aves,Passeriformes,Corvidae,,,Corvus corax|common raven;Pica hudsonia|black-billed magpie;Corvus brachyrhynchos|american crow;Nucifraga columbiana|clark's nutcracker;Cyanocitta cristata|blue jay;Perisoreus canadensis|gray jay;Cyanocitta stelleri|steller's jay;Gymnorhinus cyanocephalus|pinyon jay
+heron,Aves,Pelecaniformes,Ardeidae,,,Nycticorax nycticorax|black-crowned night-heron;Egretta thula|snowy egret;Ardea alba|great egret;Botaurus lentiginosus|american bittern
+owl,Aves,Strigiformes,Strigidae,,,Bubo virginianus|great horned owl;Athene cunicularia|burrowing owl;Asio flammeus|short-eared owl;Megascops asio|eastern screech-owl;Aegolius acadicus|northern saw-whet owl;Glaucidium gnoma|northern pygmy-owl
 pronghorn,Mammalia,Artiodactyla,Antilocapridae,Antilocapra,americana,Antilocapra americana|pronghorn
-bighorn sheep,Mammalia,Artiodactyla,Bovidae,Ovis,canadensis,Ovis canadensis|bighorn sheep
+american bison,Mammalia,Artiodactyla,Bovidae,Bison,bison,Bison bison|american bison
+domestic cattle,Mammalia,Artiodactyla,Bovidae,Bos,taurus,Bos taurus|domestic cattle
+domestic goat,Mammalia,Artiodactyla,Bovidae,Capra,hircus,Capra hircus|domestic goat
+mountain goat,Mammalia,Artiodactyla,Bovidae,Oreamnos,americanus,Oreamnos americanus|mountain goat
 domestic sheep,Mammalia,Artiodactyla,Bovidae,Ovis,aries,Ovis aries|domestic sheep
-cattle,Mammalia,Artiodactyla,Bovidae,Bos,taurus,Bos taurus|domestic cattle
-bison,Mammalia,Artiodactyla,Bovidae,Bison,bison,Bison bison|American bison
-horse,Mammalia,Perissodactyla,Equidae,Equus,caballus,Equus caballus|horse
-wolf,Mammalia,Carnivora,Canidae,Canis,lupus,Canis lupus|gray wolf
-coyote,Mammalia,Carnivora,Canidae,Canis,latrans,Canis latrans|coyote
+bighorn sheep,Mammalia,Artiodactyla,Bovidae,Ovis,canadensis,Ovis canadensis|bighorn sheep
+moose,Mammalia,Artiodactyla,Cervidae,Alces,alces,Alces alces|moose;Alces americanus|moose
+elk,Mammalia,Artiodactyla,Cervidae,Cervus,canadensis,Cervus canadensis|elk;Cervus elaphus|elk
+mule deer,Mammalia,Artiodactyla,Cervidae,Odocoileus,hemionus,Odocoileus hemionus|mule deer
+white-tailed deer,Mammalia,Artiodactyla,Cervidae,Odocoileus,virginianus,Odocoileus virginianus|white-tailed deer
 domestic dog,Mammalia,Carnivora,Canidae,Canis,familiaris,Canis familiaris|domestic dog
-fox,Mammalia,Carnivora,Canidae,Vulpes,,Vulpes vulpes|red fox
-fox,Mammalia,Carnivora,Canidae,Urocyon,,Urocyon cinereoargenteus|gray fox
-bear,Mammalia,Carnivora,Ursidae,Ursus,,Ursus americanus|black bear;Ursus arctos|grizzly bear
-mountain lion,Mammalia,Carnivora,Felidae,Puma,concolor,Puma concolor|cougar
+coyote,Mammalia,Carnivora,Canidae,Canis,latrans,Canis latrans|coyote
+gray wolf,Mammalia,Carnivora,Canidae,Canis,lupus,Canis lupus|gray wolf
+swift fox,Mammalia,Carnivora,Canidae,Vulpes,velox,Vulpes velox|swift fox
+red fox,Mammalia,Carnivora,Canidae,Vulpes,vulpes,Vulpes vulpes|red fox
+domestic cat,Mammalia,Carnivora,Felidae,Felis,catus,Felis catus|domestic cat
+canada lynx,Mammalia,Carnivora,Felidae,Lynx,canadensis,Lynx canadensis|canada lynx
 bobcat,Mammalia,Carnivora,Felidae,Lynx,rufus,Lynx rufus|bobcat
-badger,Mammalia,Carnivora,Mustelidae,Taxidea,taxus,Taxidea taxus|American badger
-weasel,Mammalia,Carnivora,Mustelidae,Mustela,,Mustela frenata|long-tailed weasel;Mustela erminea|short-tailed weasel
+puma,Mammalia,Carnivora,Felidae,Puma,concolor,Puma concolor|puma
+striped skunk,Mammalia,Carnivora,Mephitidae,Mephitis,mephitis,Mephitis mephitis|striped skunk
+western spotted skunk,Mammalia,Carnivora,Mephitidae,Spilogale,gracilis,Spilogale gracilis|western spotted skunk
+wolverine,Mammalia,Carnivora,Mustelidae,Gulo,gulo,Gulo gulo|wolverine
+north american river otter,Mammalia,Carnivora,Mustelidae,Lontra,canadensis,Lontra canadensis|north american river otter
+american marten,Mammalia,Carnivora,Mustelidae,Martes,americana,Martes americana|american marten;Martes caurina|american marten
+stoat,Mammalia,Carnivora,Mustelidae,Mustela,erminea,Mustela erminea|stoat
+long-tailed weasel,Mammalia,Carnivora,Mustelidae,Mustela,frenata,Mustela frenata|long-tailed weasel;Neogale frenata|long-tailed weasel
+black-footed ferret,Mammalia,Carnivora,Mustelidae,Mustela,nigripes,Mustela nigripes|black-footed ferret
+least weasel,Mammalia,Carnivora,Mustelidae,Mustela,nivalis,Mustela nivalis|least weasel
+american mink,Mammalia,Carnivora,Mustelidae,Neogale,vison,Neogale vison|american mink;Mustela vison|american mink
+american badger,Mammalia,Carnivora,Mustelidae,Taxidea,taxus,Taxidea taxus|american badger
 raccoon,Mammalia,Carnivora,Procyonidae,Procyon,lotor,Procyon lotor|raccoon
-skunk,Mammalia,Carnivora,Mephitidae,,,Mephitis mephitis|striped skunk;Spilogale gracilis|western spotted skunk
-porcupine,Mammalia,Rodentia,Erethizontidae,Erethizon,dorsatum,Erethizon dorsatum|North American porcupine
-lagomorph,Mammalia,Lagomorpha,,,,Lepus americanus|snowshoe hare;Lepus townsendii|white-tailed jackrabbit;Sylvilagus nuttallii|mountain cottontail;Sylvilagus audubonii|desert cottontail;Ochotona princeps|American pika
-squirrel,Mammalia,Rodentia,Sciuridae,,,Tamiasciurus hudsonicus|red squirrel;Urocitellus elegans|Wyoming ground squirrel;Callospermophilus lateralis|golden-mantled ground squirrel;Neotamias minimus|least chipmunk;Marmota flaviventris|yellow-bellied marmot;Cynomys leucurus|white-tailed prairie dog
-turkey,Aves,Galliformes,Phasianidae,Meleagris,gallopavo,Meleagris gallopavo|wild turkey
-grouse,Aves,Galliformes,Phasianidae,Dendragapus,,Dendragapus obscurus|dusky grouse
-grouse,Aves,Galliformes,Phasianidae,Centrocercus,,Centrocercus urophasianus|greater sage-grouse
-grouse,Aves,Galliformes,Phasianidae,Tympanuchus,,Tympanuchus phasianellus|sharp-tailed grouse
-corvid,Aves,Passeriformes,Corvidae,,,Corvus corax|common raven;Pica hudsonia|black-billed magpie
-raptor,Aves,Accipitriformes,Accipitridae,,,Aquila chrysaetos|golden eagle;Buteo jamaicensis|red-tailed hawk
+black bear,Mammalia,Carnivora,Ursidae,Ursus,americanus,Ursus americanus|black bear
+brown bear,Mammalia,Carnivora,Ursidae,Ursus,arctos,Ursus arctos|brown bear
+virginia opossum,Mammalia,Didelphimorphia,Didelphidae,Didelphis,virginiana,Didelphis virginiana|virginia opossum
+pygmy rabbit,Mammalia,Lagomorpha,Leporidae,Brachylagus,idahoensis,Brachylagus idahoensis|pygmy rabbit
+snowshoe hare,Mammalia,Lagomorpha,Leporidae,Lepus,americanus,Lepus americanus|snowshoe hare
+black-tailed jackrabbit,Mammalia,Lagomorpha,Leporidae,Lepus,californicus,Lepus californicus|black-tailed jackrabbit
+white-tailed jackrabbit,Mammalia,Lagomorpha,Leporidae,Lepus,townsendii,Lepus townsendii|white-tailed jackrabbit
+desert cottontail,Mammalia,Lagomorpha,Leporidae,Sylvilagus,audubonii,Sylvilagus audubonii|desert cottontail
+eastern cottontail,Mammalia,Lagomorpha,Leporidae,Sylvilagus,floridanus,Sylvilagus floridanus|eastern cottontail
+mountain cottontail,Mammalia,Lagomorpha,Leporidae,Sylvilagus,nuttallii,Sylvilagus nuttallii|mountain cottontail
+american pika,Mammalia,Lagomorpha,Ochotonidae,Ochotona,princeps,Ochotona princeps|american pika
+horse,Mammalia,Perissodactyla,Equidae,Equus,caballus,Equus caballus|horse
+american beaver,Mammalia,Rodentia,Castoridae,Castor,canadensis,Castor canadensis|american beaver
+muskrat,Mammalia,Rodentia,Cricetidae,Ondatra,zibethicus,Ondatra zibethicus|muskrat
+north american porcupine,Mammalia,Rodentia,Erethizontidae,Erethizon,dorsatus,Erethizon dorsatus|north american porcupine
+golden-mantled ground squirrel,Mammalia,Rodentia,Sciuridae,Callospermophilus,lateralis,Callospermophilus lateralis|golden-mantled ground squirrel
+white-tailed prairie dog,Mammalia,Rodentia,Sciuridae,Cynomys,leucurus,Cynomys leucurus|white-tailed prairie dog
+black-tailed prairie dog,Mammalia,Rodentia,Sciuridae,Cynomys,ludovicianus,Cynomys ludovicianus|black-tailed prairie dog
+northern flying squirrel,Mammalia,Rodentia,Sciuridae,Glaucomys,sabrinus,Glaucomys sabrinus|northern flying squirrel
+thirteen-lined ground squirrel,Mammalia,Rodentia,Sciuridae,Ictidomys,tridecemlineatus,Ictidomys tridecemlineatus|thirteen-lined ground squirrel
+yellow-bellied marmot,Mammalia,Rodentia,Sciuridae,Marmota,flaviventris,Marmota flaviventris|yellow-bellied marmot
+eastern gray squirrel,Mammalia,Rodentia,Sciuridae,Sciurus,carolinensis,Sciurus carolinensis|eastern gray squirrel
+fox squirrel,Mammalia,Rodentia,Sciuridae,Sciurus,niger,Sciurus niger|fox squirrel
+yellow-pine chipmunk,Mammalia,Rodentia,Sciuridae,Tamias,amoenus,Tamias amoenus|yellow-pine chipmunk
+cliff chipmunk,Mammalia,Rodentia,Sciuridae,Tamias,dorsalis,Tamias dorsalis|cliff chipmunk
+least chipmunk,Mammalia,Rodentia,Sciuridae,Tamias,minimus,Tamias minimus|least chipmunk
+uinta chipmunk,Mammalia,Rodentia,Sciuridae,Tamias,umbrinus,Tamias umbrinus|uinta chipmunk
+american red squirrel,Mammalia,Rodentia,Sciuridae,Tamiasciurus,hudsonicus,Tamiasciurus hudsonicus|american red squirrel
+uinta ground squirrel,Mammalia,Rodentia,Sciuridae,Urocitellus,armatus,Urocitellus armatus|uinta ground squirrel
+wyoming ground squirrel,Mammalia,Rodentia,Sciuridae,Urocitellus,elegans,Urocitellus elegans|wyoming ground squirrel

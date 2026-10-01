@@ -8,6 +8,7 @@
     wytrap merge      side-by-side table of several classifiers on the same boxes
     wytrap census     what a run saw per camera, and what the vocabulary is missing
     wytrap vocab      write the candidate lists a vocabulary implies per model
+    wytrap gbif       build a vocabulary from GBIF occurrence records in a region
     wytrap species    inspect a built-in or file-based species list
 
 `wytrap <command> --help` lists every option.
@@ -197,7 +198,13 @@ def build_parser() -> argparse.ArgumentParser:
     _add_common_args(p)
     p.set_defaults(func=_cmd_classify)
 
-    from wytrap import calibrate, census, evaluate, ingest, merge
+    from wytrap import calibrate, census, evaluate, gbif, ingest, merge
+    p = sub.add_parser("gbif", help="build a vocabulary of camera-detectable species from GBIF records in a region",
+                       description=gbif.__doc__,
+                       formatter_class=argparse.RawDescriptionHelpFormatter)
+    gbif.add_arguments(p)
+    p.set_defaults(func=gbif.run)
+
     p = sub.add_parser("census", help="tally a run's labels per camera and audit them against a vocabulary",
                        description=census.__doc__,
                        formatter_class=argparse.RawDescriptionHelpFormatter)

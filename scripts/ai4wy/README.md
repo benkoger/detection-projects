@@ -122,8 +122,13 @@ CAMERAS=shirley sbatch --dependency=afterany:$(squeue -u $USER -h -n wytrap-depl
 cat /project/uwyo-0007/data/CameraTrap_test/output/census-shirley/census.csv
 ```
 
-Add what shows up with a solid count, drop what never does, and rerun the
-restricted classifiers with the revised `taxonomy/*.csv`.
+The default vocabulary, `taxonomy/wyoming_vocab.csv`, is every
+camera-detectable species GBIF has recorded in the state (`wytrap gbif`), so
+the census should mostly confirm it; a label that is outside it with a real
+count means the GBIF rule missed something, and the fix is a row in the CSV.
+A statewide list is deliberately used everywhere rather than per-site lists:
+narrowing to what one season's census saw forces a classifier to mislabel
+the moose that walks past in November.
 
 ## Gotchas
 

@@ -1,0 +1,682 @@
+{
+ "Corvus corax": {
+  "common": "common raven",
+  "family": "Corvidae",
+  "records": 92622
+ },
+ "Branta canadensis": {
+  "common": "canada goose (canadensis group)",
+  "family": "Anatidae",
+  "records": 86848
+ },
+ "Anas platyrhynchos": {
+  "common": "mallard",
+  "family": "Anatidae",
+  "records": 78566
+ },
+ "Pica hudsonia": {
+  "common": "black-billed magpie",
+  "family": "Corvidae",
+  "records": 69144
+ },
+ "Streptopelia decaocto": {
+  "common": "eurasian collared-dove",
+  "family": "Columbidae",
+  "records": 58274
+ },
+ "Corvus brachyrhynchos": {
+  "common": "american crow",
+  "family": "Corvidae",
+  "records": 49726
+ },
+ "Buteo jamaicensis": {
+  "common": "red-tailed hawk",
+  "family": "Accipitridae",
+  "records": 48409
+ },
+ "Zenaida macroura": {
+  "common": "mourning dove",
+  "family": "Columbidae",
+  "records": 42237
+ },
+ "Haliaeetus leucocephalus": {
+  "common": "bald eagle",
+  "family": "Accipitridae",
+  "records": 33384
+ },
+ "Cathartes aura": {
+  "common": "turkey vulture",
+  "family": "Cathartidae",
+  "records": 30744
+ },
+ "Mergus merganser": {
+  "common": "common merganser",
+  "family": "Anatidae",
+  "records": 29358
+ },
+ "Grus canadensis": {
+  "common": "sandhill crane",
+  "family": "Gruidae",
+  "records": 25870
+ },
+ "Mareca strepera": {
+  "common": "gadwall",
+  "family": "Anatidae",
+  "records": 25772
+ },
+ "Nucifraga columbiana": {
+  "common": "clark's nutcracker",
+  "family": "Corvidae",
+  "records": 24092
+ },
+ "Columba livia": {
+  "common": "rock pigeon",
+  "family": "Columbidae",
+  "records": 23088
+ },
+ "Falco sparverius": {
+  "common": "american kestrel",
+  "family": "Falconidae",
+  "records": 22961
+ },
+ "Pandion haliaetus": {
+  "common": "osprey",
+  "family": "Pandionidae",
+  "records": 22912
+ },
+ "Mareca americana": {
+  "common": "american wigeon",
+  "family": "Anatidae",
+  "records": 22259
+ },
+ "Circus cyaneus": {
+  "common": "hen harrier",
+  "family": "Accipitridae",
+  "records": 18806
+ },
+ "Aythya affinis": {
+  "common": "lesser scaup",
+  "family": "Anatidae",
+  "records": 18576
+ },
+ "Anas crecca": {
+  "common": "green-winged teal",
+  "family": "Anatidae",
+  "records": 18143
+ },
+ "Buteo swainsoni": {
+  "common": "swainson's hawk",
+  "family": "Accipitridae",
+  "records": 17972
+ },
+ "Aquila chrysaetos": {
+  "common": "golden eagle",
+  "family": "Accipitridae",
+  "records": 17802
+ },
+ "Bucephala islandica": {
+  "common": "barrow's goldeneye",
+  "family": "Anatidae",
+  "records": 15610
+ },
+ "Spatula clypeata": {
+  "common": "northern shoveler",
+  "family": "Anatidae",
+  "records": 15432
+ },
+ "Spatula cyanoptera": {
+  "common": "cinnamon teal",
+  "family": "Anatidae",
+  "records": 15058
+ },
+ "Aythya collaris": {
+  "common": "ring-necked duck",
+  "family": "Anatidae",
+  "records": 13738
+ },
+ "Cyanocitta cristata": {
+  "common": "blue jay",
+  "family": "Corvidae",
+  "records": 12940
+ },
+ "Aythya americana": {
+  "common": "redhead",
+  "family": "Anatidae",
+  "records": 12543
+ },
+ "Bucephala albeola": {
+  "common": "bufflehead",
+  "family": "Anatidae",
+  "records": 12364
+ },
+ "Spatula discors": {
+  "common": "blue-winged teal",
+  "family": "Anatidae",
+  "records": 11579
+ },
+ "Oxyura jamaicensis": {
+  "common": "ruddy duck",
+  "family": "Anatidae",
+  "records": 11315
+ },
+ "Bucephala clangula": {
+  "common": "common goldeneye",
+  "family": "Anatidae",
+  "records": 9931
+ },
+ "Perisoreus canadensis": {
+  "common": "gray jay",
+  "family": "Corvidae",
+  "records": 9624
+ },
+ "Bison bison": {
+  "common": "american bison",
+  "family": "Bovidae",
+  "records": 9087
+ },
+ "Bubo virginianus": {
+  "common": "great horned owl",
+  "family": "Strigidae",
+  "records": 8922
+ },
+ "Anas acuta": {
+  "common": "northern pintail",
+  "family": "Anatidae",
+  "records": 8755
+ },
+ "Buteo lagopus": {
+  "common": "rough-legged hawk",
+  "family": "Accipitridae",
+  "records": 8298
+ },
+ "Phasianus colchicus": {
+  "common": "ring-necked pheasant",
+  "family": "Phasianidae",
+  "records": 7932
+ },
+ "Aythya valisineria": {
+  "common": "canvasback",
+  "family": "Anatidae",
+  "records": 6831
+ },
+ "Meleagris gallopavo": {
+  "common": "wild turkey",
+  "family": "Phasianidae",
+  "records": 6519
+ },
+ "Cyanocitta stelleri": {
+  "common": "steller's jay",
+  "family": "Corvidae",
+  "records": 6425
+ },
+ "Accipiter striatus": {
+  "common": "sharp-shinned hawk",
+  "family": "Accipitridae",
+  "records": 5585
+ },
+ "Falco mexicanus": {
+  "common": "prairie falcon",
+  "family": "Falconidae",
+  "records": 5452
+ },
+ "Buteo regalis": {
+  "common": "ferruginous hawk",
+  "family": "Accipitridae",
+  "records": 5110
+ },
+ "Cervus canadensis": {
+  "common": "elk",
+  "family": "Cervidae",
+  "records": 5085
+ },
+ "Dendragapus obscurus": {
+  "common": "dusky grouse",
+  "family": "Phasianidae",
+  "records": 4447
+ },
+ "Bonasa umbellus": {
+  "common": "ruffed grouse",
+  "family": "Phasianidae",
+  "records": 3992
+ },
+ "Antilocapra americana": {
+  "common": "pronghorn",
+  "family": "Antilocapridae",
+  "records": 3935
+ },
+ "Centrocercus urophasianus": {
+  "common": "greater sage-grouse",
+  "family": "Phasianidae",
+  "records": 3559
+ },
+ "Alces alces": {
+  "common": "moose",
+  "family": "Cervidae",
+  "records": 3427
+ },
+ "Aix sponsa": {
+  "common": "wood duck",
+  "family": "Anatidae",
+  "records": 3382
+ },
+ "Falco peregrinus": {
+  "common": "peregrine falcon",
+  "family": "Falconidae",
+  "records": 3014
+ },
+ "Histrionicus histrionicus": {
+  "common": "harlequin duck",
+  "family": "Anatidae",
+  "records": 2759
+ },
+ "Lophodytes cucullatus": {
+  "common": "hooded merganser",
+  "family": "Anatidae",
+  "records": 2702
+ },
+ "Odocoileus hemionus": {
+  "common": "mule deer",
+  "family": "Cervidae",
+  "records": 2642
+ },
+ "Nycticorax nycticorax": {
+  "common": "black-crowned night-heron",
+  "family": "Ardeidae",
+  "records": 2637
+ },
+ "Ursus americanus": {
+  "common": "black bear",
+  "family": "Ursidae",
+  "records": 2527
+ },
+ "Falco columbarius": {
+  "common": "merlin",
+  "family": "Falconidae",
+  "records": 2362
+ },
+ "Branta hutchinsii": {
+  "common": "cackling goose",
+  "family": "Anatidae",
+  "records": 1925
+ },
+ "Ursus arctos": {
+  "common": "brown bear",
+  "family": "Ursidae",
+  "records": 1915
+ },
+ "Urocitellus armatus": {
+  "common": "uinta ground squirrel",
+  "family": "Sciuridae",
+  "records": 1897
+ },
+ "Marmota flaviventris": {
+  "common": "yellow-bellied marmot",
+  "family": "Sciuridae",
+  "records": 1885
+ },
+ "Gymnorhinus cyanocephalus": {
+  "common": "pinyon jay",
+  "family": "Corvidae",
+  "records": 1783
+ },
+ "Falco atricapillus": {
+  "common": "falco atricapillus",
+  "family": "Falconidae",
+  "records": 1623
+ },
+ "Canis latrans": {
+  "common": "coyote",
+  "family": "Canidae",
+  "records": 1590
+ },
+ "Tympanuchus phasianellus": {
+  "common": "sharp-tailed grouse",
+  "family": "Phasianidae",
+  "records": 1366
+ },
+ "Tamiasciurus hudsonicus": {
+  "common": "american red squirrel",
+  "family": "Sciuridae",
+  "records": 1362
+ },
+ "Callospermophilus lateralis": {
+  "common": "golden-mantled ground squirrel",
+  "family": "Sciuridae",
+  "records": 1279
+ },
+ "Mergus serrator": {
+  "common": "red-breasted merganser",
+  "family": "Anatidae",
+  "records": 1263
+ },
+ "Alectoris chukar": {
+  "common": "chukar",
+  "family": "Phasianidae",
+  "records": 1226
+ },
+ "Athene cunicularia": {
+  "common": "burrowing owl",
+  "family": "Strigidae",
+  "records": 1073
+ },
+ "Ovis canadensis": {
+  "common": "bighorn sheep",
+  "family": "Bovidae",
+  "records": 1033
+ },
+ "Canis lupus": {
+  "common": "gray wolf",
+  "family": "Canidae",
+  "records": 961
+ },
+ "Ochotona princeps": {
+  "common": "american pika",
+  "family": "Ochotonidae",
+  "records": 950
+ },
+ "Perdix perdix": {
+  "common": "gray partridge",
+  "family": "Phasianidae",
+  "records": 933
+ },
+ "Asio flammeus": {
+  "common": "short-eared owl",
+  "family": "Strigidae",
+  "records": 891
+ },
+ "Tamias minimus": {
+  "common": "least chipmunk",
+  "family": "Sciuridae",
+  "records": 873
+ },
+ "Cygnus columbianus": {
+  "common": "tundra swan",
+  "family": "Anatidae",
+  "records": 788
+ },
+ "Vulpes vulpes": {
+  "common": "red fox",
+  "family": "Canidae",
+  "records": 782
+ },
+ "Buteo platypterus": {
+  "common": "broad-winged hawk",
+  "family": "Accipitridae",
+  "records": 687
+ },
+ "Aythya marila": {
+  "common": "greater scaup",
+  "family": "Anatidae",
+  "records": 679
+ },
+ "Egretta thula": {
+  "common": "snowy egret",
+  "family": "Ardeidae",
+  "records": 548
+ },
+ "Megascops asio": {
+  "common": "eastern screech-owl",
+  "family": "Strigidae",
+  "records": 540
+ },
+ "Cynomys ludovicianus": {
+  "common": "black-tailed prairie dog",
+  "family": "Sciuridae",
+  "records": 520
+ },
+ "Aegolius acadicus": {
+  "common": "northern saw-whet owl",
+  "family": "Strigidae",
+  "records": 420
+ },
+ "Tamias amoenus": {
+  "common": "yellow-pine chipmunk",
+  "family": "Sciuridae",
+  "records": 418
+ },
+ "Castor canadensis": {
+  "common": "american beaver",
+  "family": "Castoridae",
+  "records": 380
+ },
+ "Oreamnos americanus": {
+  "common": "mountain goat",
+  "family": "Bovidae",
+  "records": 369
+ },
+ "Cynomys leucurus": {
+  "common": "white-tailed prairie dog",
+  "family": "Sciuridae",
+  "records": 354
+ },
+ "Taxidea taxus": {
+  "common": "american badger",
+  "family": "Mustelidae",
+  "records": 328
+ },
+ "Odocoileus virginianus": {
+  "common": "white-tailed deer",
+  "family": "Cervidae",
+  "records": 315
+ },
+ "Ardea alba": {
+  "common": "great egret",
+  "family": "Ardeidae",
+  "records": 313
+ },
+ "Melanitta deglandi": {
+  "common": "white-winged scoter",
+  "family": "Anatidae",
+  "records": 291
+ },
+ "Botaurus lentiginosus": {
+  "common": "american bittern",
+  "family": "Ardeidae",
+  "records": 285
+ },
+ "Sciurus niger": {
+  "common": "fox squirrel",
+  "family": "Sciuridae",
+  "records": 239
+ },
+ "Anser rossii": {
+  "common": "ross's goose",
+  "family": "Anatidae",
+  "records": 234
+ },
+ "Ondatra zibethicus": {
+  "common": "muskrat",
+  "family": "Cricetidae",
+  "records": 229
+ },
+ "Melanitta perspicillata": {
+  "common": "surf scoter",
+  "family": "Anatidae",
+  "records": 224
+ },
+ "Glaucidium gnoma": {
+  "common": "northern pygmy-owl",
+  "family": "Strigidae",
+  "records": 221
+ },
+ "Urocitellus elegans": {
+  "common": "wyoming ground squirrel",
+  "family": "Sciuridae",
+  "records": 212
+ },
+ "Lepus americanus": {
+  "common": "snowshoe hare",
+  "family": "Leporidae",
+  "records": 160
+ },
+ "Sylvilagus nuttallii": {
+  "common": "mountain cottontail",
+  "family": "Leporidae",
+  "records": 157
+ },
+ "Martes americana": {
+  "common": "american marten",
+  "family": "Mustelidae",
+  "records": 155
+ },
+ "Lepus townsendii": {
+  "common": "white-tailed jackrabbit",
+  "family": "Leporidae",
+  "records": 149
+ },
+ "Lontra canadensis": {
+  "common": "north american river otter",
+  "family": "Mustelidae",
+  "records": 140
+ },
+ "Erethizon dorsatus": {
+  "common": "north american porcupine",
+  "family": "Erethizontidae",
+  "records": 122
+ },
+ "Procyon lotor": {
+  "common": "raccoon",
+  "family": "Procyonidae",
+  "records": 112
+ },
+ "Equus caballus": {
+  "common": "horse",
+  "family": "Equidae",
+  "records": 104
+ },
+ "Tamias umbrinus": {
+  "common": "uinta chipmunk",
+  "family": "Sciuridae",
+  "records": 77
+ },
+ "Vulpes velox": {
+  "common": "swift fox",
+  "family": "Canidae",
+  "records": 76
+ },
+ "Sylvilagus audubonii": {
+  "common": "desert cottontail",
+  "family": "Leporidae",
+  "records": 63
+ },
+ "Mephitis mephitis": {
+  "common": "striped skunk",
+  "family": "Mephitidae",
+  "records": 56
+ },
+ "Puma concolor": {
+  "common": "puma",
+  "family": "Felidae",
+  "records": 52
+ },
+ "Ictidomys tridecemlineatus": {
+  "common": "thirteen-lined ground squirrel",
+  "family": "Sciuridae",
+  "records": 49
+ },
+ "Sciurus carolinensis": {
+  "common": "eastern gray squirrel",
+  "family": "Sciuridae",
+  "records": 31
+ },
+ "Lynx rufus": {
+  "common": "bobcat",
+  "family": "Felidae",
+  "records": 25
+ },
+ "Bos taurus": {
+  "common": "domestic cattle",
+  "family": "Bovidae",
+  "records": 21
+ },
+ "Felis catus": {
+  "common": "domestic cat",
+  "family": "Felidae",
+  "records": 16
+ },
+ "Mustela erminea": {
+  "common": "stoat",
+  "family": "Mustelidae",
+  "records": 16
+ },
+ "Lepus californicus": {
+  "common": "black-tailed jackrabbit",
+  "family": "Leporidae",
+  "records": 14
+ },
+ "Brachylagus idahoensis": {
+  "common": "pygmy rabbit",
+  "family": "Leporidae",
+  "records": 12
+ },
+ "Mustela nigripes": {
+  "common": "black-footed ferret",
+  "family": "Mustelidae",
+  "records": 8
+ },
+ "Spilogale gracilis": {
+  "common": "western spotted skunk",
+  "family": "Mephitidae",
+  "records": 6
+ },
+ "Sylvilagus floridanus": {
+  "common": "eastern cottontail",
+  "family": "Leporidae",
+  "records": 6
+ },
+ "Glaucomys sabrinus": {
+  "common": "northern flying squirrel",
+  "family": "Sciuridae",
+  "records": 5
+ },
+ "Mustela nivalis": {
+  "common": "least weasel",
+  "family": "Mustelidae",
+  "records": 5
+ },
+ "Tamias dorsalis": {
+  "common": "cliff chipmunk",
+  "family": "Sciuridae",
+  "records": 4
+ },
+ "Didelphis virginiana": {
+  "common": "virginia opossum",
+  "family": "Didelphidae",
+  "records": 3
+ },
+ "Neogale vison": {
+  "common": "american mink",
+  "family": "Mustelidae",
+  "records": 3
+ },
+ "Mustela frenata": {
+  "common": "long-tailed weasel",
+  "family": "Mustelidae",
+  "records": 0
+ },
+ "Gulo gulo": {
+  "common": "wolverine",
+  "family": "Mustelidae",
+  "records": 0
+ },
+ "Lynx canadensis": {
+  "common": "canada lynx",
+  "family": "Felidae",
+  "records": 0
+ },
+ "Ovis aries": {
+  "common": "domestic sheep",
+  "family": "Bovidae",
+  "records": 0
+ },
+ "Capra hircus": {
+  "common": "domestic goat",
+  "family": "Bovidae",
+  "records": 0
+ },
+ "Canis familiaris": {
+  "common": "domestic dog",
+  "family": "Canidae",
+  "records": 0
+ }
+}
