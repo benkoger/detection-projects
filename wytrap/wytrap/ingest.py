@@ -59,7 +59,10 @@ def exif_datetime(path: Path) -> str | None:
 
 
 def flat_name(rel: Path) -> str:
-    return "_".join(rel.parts)
+    """Sub-path folded into the file name; the DCIM level every camera has
+    says nothing and is dropped: 20260611_20260624/DCIM/100_BTCF/IMG_0001.JPG
+    -> 20260611_20260624_100_BTCF_IMG_0001.JPG."""
+    return "_".join(p for p in rel.parts if p.upper() != "DCIM")
 
 
 def place(src: Path, dst: Path, mode: str) -> None:
