@@ -109,6 +109,24 @@ classifier per image, person and vehicle counts, consensus) and `boxes.csv`;
 zoo model on one GPU, so roughly 35 GPU-hours per 300k images, spread
 across the array. Tasks resume, so a killed one can be resubmitted.
 
+### Looking at what was found
+
+`wytrap draw` writes JPEGs with the boxes and every classifier's label drawn
+on. It needs no GPU; run it on the login node for a few hundred images or
+in the deploy job with `DRAW_PER_LABEL=20`, which draws the 20 most
+confident images per headline label into `output/<camera>/drawn/`. To see
+every image a classifier called a particular species:
+
+```bash
+wytrap draw --merged /project/uwyo-0007/data/CameraTrap_test/output/<CAM>/merged \
+            --out /project/uwyo-0007/data/CameraTrap_test/output/<CAM>/drawn-ferret --label ferret
+```
+
+Copy the `drawn` folder (1600 px JPEGs, about 300 kB each) to a laptop to
+flick through; `index.csv` in it lists the labels per image. Records store
+cluster paths, so on a laptop with a synced copy of the images add
+`--remap /project/uwyo-0007/data=/path/to/local/copy`.
+
 ### Auditing the species list
 
 The vocabulary is a guess until the cameras have spoken. `census.sbatch`

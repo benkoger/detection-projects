@@ -121,6 +121,24 @@ and score, person and vehicle counts, and a `consensus` column filled when a
 majority agree. `boxes.csv` is the same per box. Rows where the classifiers
 disagree are the ones worth a human look.
 
+### Look at the images
+
+```bash
+wytrap draw --merged /runs/cam01-merged --out /runs/cam01-drawn --per-label 20
+```
+
+writes a JPEG per image with every box outlined and labelled: the detector
+score, each classifier's label and score, and the quality tag when the box
+is not `ok`. Boxes the classifiers agree on are green, disagreements orange,
+people red, vehicles blue, low-quality boxes thin and grey; the file name
+sits in the bottom-left corner. `--merged` draws every arm of a merge;
+`--run DIR` (repeatable) names runs by hand. `--per-label N` keeps the N
+most confident images per headline label, `--label ferret,weasel` keeps
+images where any classifier said so, `--images FILE` takes a list of paths
+(the `image` column of `images.csv`), `--min-det` sets the box floor, and
+`--remap /project/uwyo-0007/data=/Users/me/data` opens images synced to
+another machine. `index.csv` beside the JPEGs lists what was drawn.
+
 With labels (a `labels.json` as written by `scripts/fetch_idaho_subset.py`):
 
 ```bash
@@ -227,6 +245,7 @@ wytrap/
   calibrate.py       prior correction
   evaluate.py        image-level evaluation
   merge.py           side-by-side tables
+  draw.py            boxes and labels drawn onto the images (Pillow only)
   census.py          per-camera label counts audited against a vocabulary
   gbif.py            vocabulary from GBIF occurrence records in a region
   species_lists.py   built-in BioCLIP species lists (wyoming_all, ...)

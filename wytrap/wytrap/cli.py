@@ -6,6 +6,7 @@
     wytrap calibrate  BioCLIP prior correction from a run's prompt scores
     wytrap eval       score a run against image-level labels
     wytrap merge      side-by-side table of several classifiers on the same boxes
+    wytrap draw       boxes and labels drawn onto the images, for review by eye
     wytrap census     what a run saw per camera, and what the vocabulary is missing
     wytrap vocab      write the candidate lists a vocabulary implies per model
     wytrap gbif       build a vocabulary from GBIF occurrence records in a region
@@ -198,7 +199,7 @@ def build_parser() -> argparse.ArgumentParser:
     _add_common_args(p)
     p.set_defaults(func=_cmd_classify)
 
-    from wytrap import calibrate, census, evaluate, gbif, ingest, merge
+    from wytrap import calibrate, census, draw, evaluate, gbif, ingest, merge
     p = sub.add_parser("gbif", help="build a vocabulary of camera-detectable species from GBIF records in a region",
                        description=gbif.__doc__,
                        formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -234,6 +235,12 @@ def build_parser() -> argparse.ArgumentParser:
                        formatter_class=argparse.RawDescriptionHelpFormatter)
     merge.add_arguments(p)
     p.set_defaults(func=lambda a, _p=p: merge.run(_p, a))
+
+    p = sub.add_parser("draw", help="draw boxes and labels onto the images of one or more runs",
+                       description=draw.__doc__,
+                       formatter_class=argparse.RawDescriptionHelpFormatter)
+    draw.add_arguments(p)
+    p.set_defaults(func=lambda a, _p=p: draw.run(_p, a))
 
     p = sub.add_parser("vocab", help="write the per-model candidate lists of a vocabulary")
     p.add_argument("vocab", help="taxonomy/*.csv")
