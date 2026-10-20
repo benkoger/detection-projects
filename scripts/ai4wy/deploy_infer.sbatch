@@ -28,6 +28,8 @@
 #                 (needs several camera sub-folders to be meaningful).
 #   ZOO           default Addax-Data-Science/WUSA-SDZWA-v1
 #   ADMIN1        geofence state for the SpeciesNet ensemble (default WY)
+#   DRAW_PER_LABEL after the merge, draw boxes and labels onto the N most confident
+#                 images per headline label into OUT_ROOT/drawn (default 0: off)
 #SBATCH --job-name=wytrap-deploy
 #SBATCH --account=uwyo-0007
 #SBATCH --partition=gp-1,gp-2
@@ -110,4 +112,9 @@ done
 
 echo "===== merge ====="
 wytrap merge --out "$OUT_ROOT/merged" --min-det "${MIN_DET:-0.5}" "${ARMS[@]}"
+if [[ "${DRAW_PER_LABEL:-0}" -gt 0 ]]; then
+    echo "===== draw ====="
+    wytrap draw --merged "$OUT_ROOT/merged" --out "$OUT_ROOT/drawn" --min-det "${MIN_DET:-0.5}" \
+        --per-label "$DRAW_PER_LABEL" --jobs "${SLURM_CPUS_PER_TASK:-4}"
+fi
 echo "[deploy_infer] done: $OUT_ROOT/merged/images.csv"
