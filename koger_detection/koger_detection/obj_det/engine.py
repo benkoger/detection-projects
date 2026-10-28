@@ -13,6 +13,7 @@ from torch import nn, Tensor
 from torch.utils.tensorboard import SummaryWriter
 import torchvision
 from torchvision.models.detection.faster_rcnn import FastRCNNPredictor
+from torchvision.models.detection.anchor_utils import AnchorGenerator
 from torchvision.models.detection.transform import GeneralizedRCNNTransform
 from torchvision.models.detection.image_list import ImageList
 from torchvision.transforms import ToTensor
@@ -96,6 +97,11 @@ def get_detection_model(num_classes, **model_cfg):
             - max_size
             - min_size
     """
+    # Honor anchor keys here so train and deploy build the same RPN; torchvision
+    # silently swallows unknown kwargs and keeps its 32-512 px defaults otherwise.
+    anchor_sizes = model_cfg.pop("anchor_sizes", None)
+    anchor_aspect_ratios = model_cfg.pop("anchor_aspect_ratios", None)
+
     if model_cfg['model_type'] == "bbox":
         model = torchvision.models.detection.fasterrcnn_resnet50_fpn(
             weights="DEFAULT",
@@ -116,6 +122,20 @@ def get_detection_model(num_classes, **model_cfg):
             weights=torchvision.models.detection.KeypointRCNN_ResNet50_FPN_Weights.DEFAULT,
             **model_cfg
         )
+    if anchor_sizes is not None:
+        sizes = tuple(tuple(s) for s in anchor_sizes)
+        if anchor_aspect_ratios is None:
+            ratios = ((0.5, 1.0, 2.0),) * len(sizes)
+        elif anchor_aspect_ratios and not isinstance(anchor_aspect_ratios[0], (list, tuple)):
+            ratios = (tuple(anchor_aspect_ratios),) * len(sizes)
+        else:
+            ratios = tuple(tuple(r) for r in anchor_aspect_ratios)
+        gen = AnchorGenerator(sizes, ratios)
+        # The pretrained RPN head is sized for the default anchors-per-location.
+        assert gen.num_anchors_per_location() == model.rpn.anchor_generator.num_anchors_per_location(), \
+            "anchor cfg changes anchors per location; RPN head would not match"
+        model.rpn.anchor_generator = gen
+
     # get number of input features for the classifier
     in_features = model.roi_heads.box_predictor.cls_score.in_features
     # replace the pre-trained head with a new one
