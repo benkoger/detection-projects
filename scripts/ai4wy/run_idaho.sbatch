@@ -6,8 +6,10 @@
 #   sbatch scripts/ai4wy/run_idaho.sbatch
 #
 # Optional env-vars:
-#   INPUT_DIR   default /project/uwyo-0007/data/idaho-subset/images
-#   OUTPUT_DIR  default /project/uwyo-0007/data/idaho-subset/output-wytrap
+#   DATA_DIR    default /project/uwyo-0007/data/idaho-100pc (images/ + labels.json,
+#               as written by fetch_idaho_subset.py / fetch_and_run_idaho.sbatch)
+#   INPUT_DIR   default $DATA_DIR/images
+#   OUTPUT_DIR  default $DATA_DIR/output-wytrap
 #   SPECIES     default wyoming_all; or a species file, e.g.
 #               SPECIES=scripts/ai4wy/species_idaho.txt (closed-set arm)
 #   LABELS      default $INPUT_DIR/../labels.json (from fetch_idaho_subset.py)
@@ -44,9 +46,16 @@ export HF_HOME="${HF_HOME:-$PROJECT_ROOT/models}"
 export TORCH_HOME="${TORCH_HOME:-$PROJECT_ROOT/models/torch}"
 export HF_HUB_OFFLINE="${HF_HUB_OFFLINE:-1}"   # weights were prefetched on a login node
 
-INPUT_DIR="${INPUT_DIR:-/project/uwyo-0007/data/idaho-subset/images}"
-OUTPUT_DIR="${OUTPUT_DIR:-/project/uwyo-0007/data/idaho-subset/output-wytrap}"
+DATA_DIR="${DATA_DIR:-/project/uwyo-0007/data/idaho-100pc}"
+INPUT_DIR="${INPUT_DIR:-$DATA_DIR/images}"
+OUTPUT_DIR="${OUTPUT_DIR:-$DATA_DIR/output-wytrap}"
 LABELS="${LABELS:-$(dirname "$INPUT_DIR")/labels.json}"
+
+if [[ ! -d "$INPUT_DIR" ]]; then
+    echo "[run_idaho] INPUT_DIR not found: $INPUT_DIR" >&2
+    echo "[run_idaho] available: $(ls -d /project/uwyo-0007/data/idaho-* 2>/dev/null | tr '\n' ' ')" >&2
+    exit 2
+fi
 
 source "$VENV/bin/activate"
 cd "$SLURM_SUBMIT_DIR"

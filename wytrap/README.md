@@ -131,8 +131,9 @@ writes a JPEG per image with every box outlined and labelled: the detector
 score, each classifier's label and score, and the quality tag when the box
 is not `ok`. Boxes the classifiers agree on are green, disagreements orange,
 people red, vehicles blue, low-quality boxes thin and grey; the file name
-sits in the bottom-left corner. `--merged` draws every arm of a merge;
-`--run DIR` (repeatable) names runs by hand. `--per-label N` keeps the N
+sits in the bottom-left corner. `--merged` draws every arm of a merge (from
+its `summary.json`, or failing that every run folder beside it); `--run
+[NAME=]DIR` (repeatable) names runs by hand, the first supplying the boxes. `--per-label N` keeps the N
 most confident images per headline label, `--label ferret,weasel` keeps
 images where any classifier said so, `--images FILE` takes a list of paths
 (the `image` column of `images.csv`), `--min-det` sets the box floor, and

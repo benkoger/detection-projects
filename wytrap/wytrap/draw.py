@@ -131,11 +131,33 @@ def draw_one(task: dict) -> tuple[str, str | None, str]:
 # --------------------------------------------------------------------------
 
 def _arms_from_merged(merged: Path) -> list[tuple[str, Path]]:
-    summary = json.loads((merged / "summary.json").read_text())
-    arms = summary.get("arms")
-    if not arms:
-        raise SystemExit(f"{merged}/summary.json lists no arms")
-    return [(name, Path(d)) for name, d in arms.items()]
+    """The arms a `wytrap merge` folder was built from: its summary.json when
+    the merge recorded them, otherwise every run folder beside it (the layout
+    deploy_infer.sbatch writes), BioCLIP first since it supplied the boxes."""
+    summary_path = merged / "summary.json"
+    if summary_path.exists():
+        arms = json.loads(summary_path.read_text()).get("arms")
+        if arms:
+            return [(name, Path(d)) for name, d in arms.items()]
+    runs = sorted(d for d in merged.parent.iterdir()
+                  if d.is_dir() and (d / "all_records.jsonl").exists())
+    if not runs:
+        raise SystemExit(f"{summary_path} is missing (merge not finished, or an older merge "
+                         f"that did not record its arms) and no run folder with "
+                         f"all_records.jsonl sits beside {merged}; name them with --run")
+    runs.sort(key=lambda d: (not d.name.startswith("bioclip"), d.name))
+    arms, seen = [], set()
+    for d in runs:
+        name = d.name.split("-")[0]
+        n, base = 1, name
+        while name in seen:
+            n += 1
+            name = f"{base}{n}"
+        seen.add(name)
+        arms.append((name, d))
+    print(f"[draw] {summary_path.name} not usable; arms from run folders beside it: "
+          + ", ".join(f"{n}={d.name}" for n, d in arms))
+    return arms
 
 
 def _remap(path: str, remaps: list[tuple[str, str]]) -> str:
